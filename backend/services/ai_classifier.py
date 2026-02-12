@@ -248,26 +248,36 @@ async def predict_severity(image_bytes: bytes, mime_type: str) -> dict | None:
 # Plant height estimation
 # ---------------------------------------------------------------------------
 
-HEIGHT_PROMPT = """You are an expert agronomist measuring sorghum plant height from field photographs.
+HEIGHT_PROMPT = """You are an expert agronomist estimating sorghum plant height from field photographs.
 
-The image shows a sorghum plant photographed next to a meter stick or graduated measuring pole. Your task is to estimate the plant height in centimeters.
+Your task is to estimate the plant height in centimeters from the image.
 
 INSTRUCTIONS:
-1. First, verify the image contains a sorghum plant AND a visible measuring reference (meter stick, graduated pole, or ruler). If either is missing, respond with:
-   {"height_cm": 0, "confidence": 0.0, "reasoning": "No measuring reference visible"}
+1. First, verify the image contains a sorghum plant. If it does not, respond with:
+   {"height_cm": 0, "confidence": 0.0, "reasoning": "No sorghum plant visible"}
 
 2. Identify the base of the plant (ground level) and the tip of the panicle (top of the plant).
 
-3. Use the graduated markings on the measuring reference to determine the scale. Common references:
-   - Meter sticks: 100cm with 10cm increments
-   - Graduated poles: often 2m or 3m with colored bands every 10cm or 20cm
+3. Use any available visual cues to estimate scale:
+   - If a measuring stick, pole, or ruler is visible, use its markings (highest accuracy)
+   - If a person is visible, use their height as reference (average adult ~170cm)
+   - Otherwise, estimate from botanical features: typical sorghum leaf length (30-100cm),
+     internode spacing (5-20cm), panicle size (15-40cm), row spacing (~75cm),
+     and the relative size of the plant compared to surrounding features
 
 4. Estimate the height from ground level to the top of the panicle.
 
-5. Sorghum plant heights typically range from 50cm to 400cm. If your estimate falls outside this range, re-examine the scale reference.
+5. Sorghum plant heights typically range from 50cm to 400cm. If your estimate falls outside
+   this range, re-examine the image.
+
+6. Set confidence based on the quality of your reference:
+   - 0.8-1.0: Measuring reference (stick, pole) visible
+   - 0.6-0.8: Person visible as reference
+   - 0.3-0.6: Estimating from botanical features only (no external reference)
+   - 0.1-0.3: Very uncertain, poor image quality or ambiguous scale
 
 Respond ONLY with valid JSON in this exact format:
-{"height_cm": <integer 50-400 or 0 if cannot measure>, "confidence": <0.0-1.0>, "reasoning": "<brief one-sentence explanation of how you measured>"}"""
+{"height_cm": <integer 50-400 or 0 if cannot estimate>, "confidence": <0.0-1.0>, "reasoning": "<brief one-sentence explanation of how you estimated>"}"""
 
 
 def _parse_height_json(text: str) -> dict:

@@ -5,6 +5,7 @@ import type { Plot, ObservationBulkItem, PlotImage, SeverityPrediction, HeightPr
 import SeveritySelector from '../components/SeveritySelector';
 import ReferenceModal from '../components/ReferenceModal';
 import ImageCapture from '../components/ImageCapture';
+import HeightMeasure from '../components/HeightMeasure';
 
 export default function ObservationEntry() {
   const { trialId, plotId } = useParams<{ trialId: string; plotId: string }>();
@@ -156,26 +157,6 @@ export default function ObservationEntry() {
       setAiError(true);
     } finally {
       setAiLoading(false);
-    }
-  }
-
-  // AI height prediction after full-plant photo upload
-  async function handleFullPlantImageUploaded(image: PlotImage) {
-    if (plantHeight) return; // already has a value, skip prediction
-
-    setHeightAiLoading(true);
-    setHeightAiError(false);
-    try {
-      const prediction = await api.predictHeight(image.id);
-      setHeightPrediction(prediction);
-      if (prediction.height_cm >= 50) {
-        setPlantHeight(String(prediction.height_cm)); // auto-fill
-      }
-    } catch {
-      setHeightPrediction(null);
-      setHeightAiError(true);
-    } finally {
-      setHeightAiLoading(false);
     }
   }
 
@@ -379,63 +360,26 @@ export default function ObservationEntry() {
         />
       </div>
 
-      {/* Full-plant photo for height estimation */}
+      {/* Height Measurement */}
       <div className="mb-5">
         <label className="block text-sm font-medium text-neutral mb-2">
-          Full-Plant Photo
+          Measure Height
         </label>
-        <ImageCapture
+        <HeightMeasure
           plotId={pId}
-          imageType="full_plant"
-          buttonLabel="Take Full-Plant Photo"
-          helpText="Include the meter stick in the frame"
-          onImageUploaded={handleFullPlantImageUploaded}
+          plantHeight={plantHeight}
+          onHeightChange={(h) => {
+            setPlantHeight(h);
+            validateHeight(h);
+          }}
+          heightPrediction={heightPrediction}
+          heightAiLoading={heightAiLoading}
+          heightAiError={heightAiError}
+          onHeightPrediction={setHeightPrediction}
+          onHeightAiLoading={setHeightAiLoading}
+          onHeightAiError={setHeightAiError}
         />
       </div>
-
-      {/* AI Height Prediction Status */}
-      {heightAiLoading && (
-        <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
-          <svg className="animate-spin h-4 w-4 text-blue-500" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-          </svg>
-          <span className="text-sm text-blue-700">Estimating height...</span>
-        </div>
-      )}
-
-      {heightPrediction && !heightAiLoading && heightPrediction.height_cm === 0 && (
-        <div className="mb-4 px-3 py-2 bg-yellow-50 rounded-lg border border-yellow-300">
-          <span className="text-sm text-yellow-800 font-medium">
-            Could not estimate height
-          </span>
-          {heightPrediction.reasoning && (
-            <p className="text-xs text-yellow-600 mt-1">{heightPrediction.reasoning}</p>
-          )}
-          <p className="text-xs text-yellow-600 mt-1">Enter height manually below.</p>
-        </div>
-      )}
-
-      {heightPrediction && !heightAiLoading && heightPrediction.height_cm >= 50 && (
-        <div className="mb-4 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
-          <span className="text-sm text-blue-700">
-            AI estimated <strong>{heightPrediction.height_cm} cm</strong>
-            {heightPrediction.confidence >= 0.8 ? '' : ' (low confidence)'}
-            {' \u2014 '}edit below to change
-          </span>
-          {heightPrediction.reasoning && (
-            <p className="text-xs text-blue-500 mt-1">{heightPrediction.reasoning}</p>
-          )}
-        </div>
-      )}
-
-      {heightAiError && !heightAiLoading && !heightPrediction && (
-        <div className="mb-4 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
-          <span className="text-sm text-gray-500">
-            AI height estimation unavailable. Enter manually below.
-          </span>
-        </div>
-      )}
 
       {/* Plant Height */}
       <div className="mb-5">

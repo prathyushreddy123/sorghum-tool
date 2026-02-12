@@ -141,3 +141,5 @@ export interface HeightPrediction {
   reasoning: string;
   provider: string;
 }
+
+export type ClinometerStep = 'distance' | 'base' | 'top' | 'result';

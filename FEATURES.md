@@ -353,3 +353,37 @@ Cascade deletes: Trial -> Plots -> Observations + Images
 | Warning Yellow | #FFC107 | Severity 2-3, warnings |
 | Error Red | #D32F2F | Severity 5, errors, delete buttons |
 | Background | #FAFAFA | Page background |
+
+---
+
+## 13. Future Optimizations
+
+### Custom TensorFlow.js Model for Ergot Severity
+
+**Current approach:** Gemini 2.5 Flash API (~$0.001-0.01/image, requires internet)
+
+**Future optimization:** Train a custom TensorFlow.js model that runs entirely in the browser:
+
+**Benefits:**
+- **Zero cost** after deployment (no API calls)
+- **Offline-capable** — works without internet after first load
+- **Faster** — <1s inference vs 2-5s API latency
+- **Privacy** — images never leave the device
+- **Higher accuracy** — trained specifically on sorghum ergot data
+
+**Requirements:**
+- Collect 500-1000 labeled ergot images (100-200 per severity level 1-5)
+- Train a lightweight CNN (MobileNetV3 or EfficientNet-Lite) using TensorFlow/PyTorch
+- Export to TensorFlow.js format (~5MB model file)
+- Load model in browser, run inference on phone GPU
+
+**Implementation path:**
+1. Use existing 27 reference images + newly labeled field photos
+2. Train model using transfer learning from ImageNet
+3. Export to TF.js: `tensorflowjs_converter --input_format=tf_saved_model`
+4. Update `frontend/src/components/ImageCapture.tsx` to load model and run inference
+5. Keep Gemini API as optional fallback for edge cases
+
+**Estimated effort:** 1-2 days (data prep + training + integration)
+
+**ROI:** Pays for itself after ~1000 classifications; essential for large-scale trials (>240 plots/trial)

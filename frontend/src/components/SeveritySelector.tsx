@@ -1,0 +1,40 @@
+const LEVELS = [
+  { score: 1, label: 'None', pct: '0%' },
+  { score: 2, label: 'Low', pct: '1-10%' },
+  { score: 3, label: 'Mod', pct: '11-25%' },
+  { score: 4, label: 'High', pct: '26-50%' },
+  { score: 5, label: 'Sev', pct: '>50%' },
+];
+
+interface Props {
+  value: number | null;
+  onChange: (score: number) => void;
+}
+
+export default function SeveritySelector({ value, onChange }: Props) {
+  return (
+    <div className="flex justify-between gap-2">
+      {LEVELS.map(({ score, label, pct }) => {
+        const selected = value === score;
+        return (
+          <button
+            key={score}
+            type="button"
+            onClick={() => onChange(score)}
+            className={`
+              flex-1 py-3 rounded-lg border-2 min-h-[60px] flex flex-col items-center justify-center transition-colors
+              ${selected
+                ? 'bg-primary text-white border-primary'
+                : 'bg-white text-neutral border-gray-300'
+              }
+            `}
+          >
+            <span className="text-2xl font-bold leading-tight">{score}</span>
+            <span className="text-xs leading-tight">{label}</span>
+            <span className="text-[10px] leading-tight opacity-70">{pct}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}

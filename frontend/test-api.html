@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Connection Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>SorghumField API Connection Test</h1>
+    <div id="results"></div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        const results = document.getElementById('results');
+
+        async function test(name, url) {
+            results.innerHTML += `<h3>Testing: ${name}</h3>`;
+            try {
+                const response = await fetch(API_BASE + url);
+                const data = await response.json();
+                results.innerHTML += `<div class="success">✓ Success (${response.status})</div>`;
+                results.innerHTML += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+            } catch (error) {
+                results.innerHTML += `<div class="error">✗ Failed: ${error.message}</div>`;
+            }
+        }
+
+        async function runTests() {
+            results.innerHTML = '<div class="info">Starting tests...</div>';
+            await test('Root endpoint', '/');
+            await test('Get trials', '/trials');
+            results.innerHTML += '<div class="info">Tests complete!</div>';
+        }
+
+        runTests();
+    </script>
+</body>
+</html>

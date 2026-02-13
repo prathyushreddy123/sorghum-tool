@@ -32,14 +32,19 @@ export default function ClinometerOverlay({ open, onClose, onMeasured }: Clinome
   const [sensorUnavailable, setSensorUnavailable] = useState(false);
   const angleBuffer = useRef<number[]>([]);
   const listenerActive = useRef(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const isAiming = step === 'base' || step === 'top';
 
   const calculatedHeight =
     baseAngle !== null && topAngle !== null
       ? Math.round(
-          distance *
-            (Math.tan((topAngle * Math.PI) / 180) -
-              Math.tan((baseAngle * Math.PI) / 180)) *
-            100
+          Math.abs(
+            distance *
+              (Math.tan((topAngle * Math.PI) / 180) -
+                Math.tan((baseAngle * Math.PI) / 180))
+          ) * 100
         )
       : null;
 
@@ -98,9 +103,37 @@ export default function ClinometerOverlay({ open, onClose, onMeasured }: Clinome
     listenerActive.current = false;
   }, [handleOrientation]);
 
+  // Start/stop camera based on aiming steps
+  useEffect(() => {
+    if (open && isAiming) {
+      navigator.mediaDevices
+        .getUserMedia({ video: { facingMode: 'environment' }, audio: false })
+        .then((stream) => {
+          streamRef.current = stream;
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+        })
+        .catch(() => {
+          // Camera not available — still works, just no preview
+        });
+    } else {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    }
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    };
+  }, [open, isAiming]);
+
   // Start/stop sensor based on step
   useEffect(() => {
-    if (open && (step === 'base' || step === 'top')) {
+    if (open && isAiming) {
       angleBuffer.current = [];
       setLiveAngle(null);
       setStable(false);
@@ -109,7 +142,7 @@ export default function ClinometerOverlay({ open, onClose, onMeasured }: Clinome
       stopListening();
     }
     return stopListening;
-  }, [open, step, startListening, stopListening]);
+  }, [open, isAiming, startListening, stopListening]);
 
   // Reset state when overlay opens
   useEffect(() => {
@@ -133,10 +166,6 @@ export default function ClinometerOverlay({ open, onClose, onMeasured }: Clinome
       setBaseAngle(locked);
       setStep('top');
     } else if (step === 'top') {
-      if (baseAngle !== null && locked <= baseAngle) {
-        // Top must be higher than base
-        return;
-      }
       setTopAngle(locked);
       setStep('result');
     }
@@ -146,11 +175,11 @@ export default function ClinometerOverlay({ open, onClose, onMeasured }: Clinome
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: step === 'base' || step === 'top' ? '#111' : '#fff' }}>
+    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: isAiming ? '#000' : '#fff' }}>
       {/* Close button */}
       <button
         onClick={onClose}
-        className="absolute top-4 right-4 z-10 w-10 h-10 flex items-center justify-center rounded-full bg-black/30 text-white text-xl"
+        className="absolute top-4 right-4 z-20 w-10 h-10 flex items-center justify-center rounded-full bg-black/50 text-white text-xl"
         aria-label="Close"
       >
         &times;
@@ -199,93 +228,105 @@ export default function ClinometerOverlay({ open, onClose, onMeasured }: Clinome
         </div>
       )}
 
-      {/* Steps: Base and Top */}
-      {(step === 'base' || step === 'top') && (
-        <div className="flex-1 flex flex-col text-white">
-          {/* Instruction */}
-          <div className="pt-16 px-6 text-center">
-            <p className="text-lg font-medium">
-              {step === 'base'
-                ? 'Aim at the BASE of the plant'
-                : 'Aim at the TOP of the plant'}
-            </p>
-            <p className="text-sm text-gray-400 mt-1">
-              Hold phone upright like a viewfinder
-            </p>
-          </div>
+      {/* Steps: Base and Top — with live camera viewfinder */}
+      {isAiming && (
+        <div className="flex-1 flex flex-col text-white relative">
+          {/* Camera feed background */}
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className="absolute inset-0 w-full h-full object-cover"
+          />
 
-          {/* Crosshair + angle */}
-          <div className="flex-1 flex flex-col items-center justify-center">
-            {permissionDenied && (
-              <div className="px-6 text-center">
-                <p className="text-yellow-400 font-medium mb-2">Motion sensor access denied</p>
-                <p className="text-sm text-gray-400">
-                  Enable in Settings &gt; Safari &gt; Motion &amp; Orientation Access
+          {/* Dark overlay for readability */}
+          <div className="absolute inset-0 bg-black/30" />
+
+          {/* Content on top of camera */}
+          <div className="relative z-10 flex-1 flex flex-col">
+            {/* Instruction */}
+            <div className="pt-16 px-6 text-center">
+              <p className="text-lg font-medium drop-shadow-lg">
+                {step === 'base'
+                  ? 'Aim at the BASE of the plant'
+                  : 'Aim at the TOP of the plant'}
+              </p>
+              <p className="text-sm text-gray-200 mt-1 drop-shadow">
+                Point center crosshair at the target
+              </p>
+            </div>
+
+            {/* Crosshair + angle */}
+            <div className="flex-1 flex flex-col items-center justify-center">
+              {permissionDenied && (
+                <div className="px-6 text-center bg-black/60 rounded-xl p-4">
+                  <p className="text-yellow-400 font-medium mb-2">Motion sensor access denied</p>
+                  <p className="text-sm text-gray-300">
+                    Enable in Settings &gt; Safari &gt; Motion &amp; Orientation Access
+                  </p>
+                </div>
+              )}
+
+              {sensorUnavailable && (
+                <div className="px-6 text-center bg-black/60 rounded-xl p-4">
+                  <p className="text-yellow-400 font-medium">Motion sensors not available</p>
+                  <p className="text-sm text-gray-300 mt-1">This feature requires a phone with a gyroscope</p>
+                </div>
+              )}
+
+              {!permissionDenied && !sensorUnavailable && (
+                <>
+                  {/* Crosshair */}
+                  <svg width="100" height="100" viewBox="0 0 100 100" className="mb-4 drop-shadow-lg">
+                    <line x1="50" y1="10" x2="50" y2="90" stroke="white" strokeWidth="1.5" opacity="0.8" />
+                    <line x1="10" y1="50" x2="90" y2="50" stroke="white" strokeWidth="1.5" opacity="0.8" />
+                    <circle cx="50" cy="50" r="20" stroke="white" strokeWidth="1.5" fill="none" opacity="0.8" />
+                    <circle cx="50" cy="50" r="3" fill="red" />
+                  </svg>
+
+                  {/* Live angle */}
+                  <div className="text-5xl font-mono font-bold tabular-nums drop-shadow-lg bg-black/50 px-6 py-2 rounded-xl">
+                    {liveAngle !== null ? `${liveAngle > 0 ? '+' : ''}${liveAngle.toFixed(1)}°` : '—'}
+                  </div>
+
+                  {/* Stability indicator */}
+                  <div className={`mt-3 text-sm font-medium drop-shadow ${stable ? 'text-green-400' : 'text-yellow-400'}`}>
+                    {liveAngle === null
+                      ? 'Waiting for sensor...'
+                      : stable
+                        ? 'Steady — tap to lock'
+                        : 'Hold phone steady...'}
+                  </div>
+
+                </>
+              )}
+            </div>
+
+            {/* Lock button */}
+            <div className="px-6 pb-8">
+              {step === 'base' && baseAngle === null && (
+                <p className="text-xs text-gray-300 text-center mb-2 drop-shadow">
+                  Distance: {distance}m
                 </p>
-              </div>
-            )}
-
-            {sensorUnavailable && (
-              <div className="px-6 text-center">
-                <p className="text-yellow-400 font-medium">Motion sensors not available</p>
-                <p className="text-sm text-gray-400 mt-1">This feature requires a phone with a gyroscope</p>
-              </div>
-            )}
-
-            {!permissionDenied && !sensorUnavailable && (
-              <>
-                {/* Crosshair */}
-                <svg width="80" height="80" viewBox="0 0 80 80" className="mb-4 opacity-60">
-                  <line x1="40" y1="0" x2="40" y2="80" stroke="white" strokeWidth="1" />
-                  <line x1="0" y1="40" x2="80" y2="40" stroke="white" strokeWidth="1" />
-                  <circle cx="40" cy="40" r="16" stroke="white" strokeWidth="1" fill="none" />
-                </svg>
-
-                {/* Live angle */}
-                <div className="text-5xl font-mono font-bold tabular-nums">
-                  {liveAngle !== null ? `${liveAngle > 0 ? '+' : ''}${liveAngle.toFixed(1)}°` : '—'}
-                </div>
-
-                {/* Stability indicator */}
-                <div className={`mt-3 text-sm ${stable ? 'text-green-400' : 'text-yellow-400'}`}>
-                  {liveAngle === null
-                    ? 'Waiting for sensor...'
-                    : stable
-                      ? 'Steady — tap to lock'
-                      : 'Hold phone steady...'}
-                </div>
-
-                {step === 'top' && baseAngle !== null && liveAngle !== null && liveAngle <= baseAngle && (
-                  <p className="mt-2 text-sm text-red-400">Aim higher than the base angle ({baseAngle}°)</p>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Lock button */}
-          <div className="px-6 pb-8">
-            {step === 'base' && baseAngle === null && (
-              <p className="text-xs text-gray-500 text-center mb-2">
-                Distance: {distance}m
-              </p>
-            )}
-            {step === 'top' && baseAngle !== null && (
-              <p className="text-xs text-gray-500 text-center mb-2">
-                Base locked at {baseAngle}° &middot; Distance: {distance}m
-              </p>
-            )}
-            <button
-              onClick={lockAngle}
-              disabled={
-                liveAngle === null ||
-                permissionDenied ||
-                sensorUnavailable ||
-                (step === 'top' && baseAngle !== null && liveAngle !== null && liveAngle <= baseAngle)
-              }
-              className="w-full py-4 bg-primary text-white rounded-lg font-semibold text-lg min-h-[56px] disabled:opacity-30"
-            >
-              {step === 'base' ? 'Lock Base Angle' : 'Lock Top Angle'}
-            </button>
+              )}
+              {step === 'top' && baseAngle !== null && (
+                <p className="text-xs text-gray-300 text-center mb-2 drop-shadow">
+                  Base locked at {baseAngle}° &middot; Distance: {distance}m
+                </p>
+              )}
+              <button
+                onClick={lockAngle}
+                disabled={
+                  liveAngle === null ||
+                  permissionDenied ||
+                  sensorUnavailable
+                }
+                className="w-full py-4 bg-primary text-white rounded-lg font-semibold text-lg min-h-[56px] disabled:opacity-30 shadow-lg"
+              >
+                {step === 'base' ? 'Lock Base Angle' : 'Lock Top Angle'}
+              </button>
+            </div>
           </div>
         </div>
       )}

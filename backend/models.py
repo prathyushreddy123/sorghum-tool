@@ -7,6 +7,20 @@ from sqlalchemy.sql import func
 from database import Base
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    email: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    hashed_password: Mapped[str] = mapped_column(String, nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now()
+    )
+
+    trials: Mapped[list["Trial"]] = relationship(back_populates="owner")
+
+
 class Trial(Base):
     __tablename__ = "trials"
 
@@ -19,7 +33,11 @@ class Trial(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )
+    user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
 
+    owner: Mapped["User | None"] = relationship(back_populates="trials")
     plots: Mapped[list["Plot"]] = relationship(
         back_populates="trial", cascade="all, delete-orphan"
     )

@@ -4,6 +4,34 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+# --- Auth ---
+
+class UserRegister(BaseModel):
+    email: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=6)
+    name: str = Field(..., min_length=1)
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    name: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+
 # --- Trial ---
 
 class TrialCreate(BaseModel):

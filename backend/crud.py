@@ -10,15 +10,19 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from config import settings
 from models import APIKey, Image, Observation, Plot, Trial
 
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
+UPLOAD_DIR = settings.UPLOAD_DIR or os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 
 
 # --- Trials ---
 
-def get_trials(db: Session) -> list[Trial]:
-    return db.query(Trial).order_by(Trial.created_at.desc()).all()
+def get_trials(db: Session, user_id: int | None = None) -> list[Trial]:
+    query = db.query(Trial)
+    if user_id is not None:
+        query = query.filter(Trial.user_id == user_id)
+    return query.order_by(Trial.created_at.desc()).all()
 
 
 def get_trial(db: Session, trial_id: int) -> Trial | None:

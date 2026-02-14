@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { useAuth } from '../contexts/AuthContext';
 import type { APIKey } from '../types';
 
 export default function Settings() {
+  const { user, logout } = useAuth();
   const [keys, setKeys] = useState<APIKey[]>([]);
   const [label, setLabel] = useState('');
   const [newKey, setNewKey] = useState<string | null>(null);
@@ -54,6 +56,21 @@ export default function Settings() {
   return (
     <div className="pb-6">
       <h2 className="text-xl font-bold text-neutral mb-4">Settings</h2>
+
+      {/* Account section */}
+      {user && (
+        <div className="mb-6 bg-card rounded-lg p-4 shadow border border-gray-100">
+          <h3 className="text-lg font-semibold text-neutral mb-2">Account</h3>
+          <div className="text-sm text-neutral">{user.name}</div>
+          <div className="text-xs text-gray-400 mb-3">{user.email}</div>
+          <button
+            onClick={logout}
+            className="w-full py-3 text-error text-center rounded-lg font-medium text-sm min-h-[44px] border border-gray-200"
+          >
+            Sign Out
+          </button>
+        </div>
+      )}
 
       <div className="mb-6">
         <h3 className="text-lg font-semibold text-neutral mb-3">API Keys</h3>

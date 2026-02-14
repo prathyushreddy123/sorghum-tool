@@ -13,12 +13,29 @@ import type {
   HeatmapData,
   SeverityPrediction,
   HeightPrediction,
+  AuthResponse,
+  User,
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
+function getToken(): string | null {
+  return localStorage.getItem('auth_token');
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${url}`, options);
+  const token = getToken();
+  const headers: Record<string, string> = {
+    ...(options?.headers as Record<string, string> || {}),
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
+  if (res.status === 401) {
+    localStorage.removeItem('auth_token');
+    window.dispatchEvent(new Event('auth:logout'));
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail || `Request failed: ${res.status}`);
@@ -27,6 +44,23 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Auth
+  register: (email: string, password: string, name: string) =>
+    request<AuthResponse>('/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password, name }),
+    }),
+
+  login: (email: string, password: string) =>
+    request<AuthResponse>('/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    }),
+
+  getMe: () => request<User>('/auth/me'),
+
   // Trials
   getTrials: () => request<Trial[]>('/trials'),
 
@@ -51,8 +85,12 @@ export const api = {
   importPlots: async (trialId: number, file: File): Promise<PlotImportResponse> => {
     const form = new FormData();
     form.append('file', file);
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch(`${API_BASE}/trials/${trialId}/plots/import`, {
       method: 'POST',
+      headers,
       body: form,
     });
     if (!res.ok) {
@@ -88,8 +126,12 @@ export const api = {
   uploadImage: async (plotId: number, file: File, imageType: 'panicle' | 'full_plant' = 'panicle'): Promise<PlotImage> => {
     const form = new FormData();
     form.append('file', file);
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch(`${API_BASE}/plots/${plotId}/images?image_type=${imageType}`, {
       method: 'POST',
+      headers,
       body: form,
     });
     if (!res.ok) {
@@ -129,7 +171,10 @@ export const api = {
   getHeatmap: (trialId: number) => request<HeatmapData>(`/trials/${trialId}/heatmap`),
 
   exportCsv: async (trialId: number): Promise<Blob> => {
-    const res = await fetch(`${API_BASE}/trials/${trialId}/export`);
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/trials/${trialId}/export`, { headers });
     if (!res.ok) throw new Error('Export failed');
     return res.blob();
   },

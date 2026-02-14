@@ -2,11 +2,60 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 import crud
+from auth import create_access_token, hash_password, require_user, verify_password
 from database import get_db
-from schemas import APIKeyCreate, APIKeyCreateResponse, APIKeyResponse
+from models import User
+from schemas import (
+    APIKeyCreate,
+    APIKeyCreateResponse,
+    APIKeyResponse,
+    TokenResponse,
+    UserLogin,
+    UserRegister,
+    UserResponse,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+
+@router.post("/register", response_model=TokenResponse, status_code=201)
+def register(data: UserRegister, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == data.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    user = User(
+        email=data.email,
+        hashed_password=hash_password(data.password),
+        name=data.name,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = create_access_token(user.id)
+    return TokenResponse(
+        access_token=token,
+        user=UserResponse.model_validate(user),
+    )
+
+
+@router.post("/login", response_model=TokenResponse)
+def login(data: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == data.email).first()
+    if not user or not verify_password(data.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = create_access_token(user.id)
+    return TokenResponse(
+        access_token=token,
+        user=UserResponse.model_validate(user),
+    )
+
+
+@router.get("/me", response_model=UserResponse)
+def get_me(user: User = Depends(require_user)):
+    return UserResponse.model_validate(user)
+
+
+# --- API Keys ---
 
 @router.post("/api-keys", response_model=APIKeyCreateResponse, status_code=201)
 def create_api_key(data: APIKeyCreate, db: Session = Depends(get_db)):

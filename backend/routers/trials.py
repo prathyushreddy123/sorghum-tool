@@ -2,15 +2,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 import crud
+from auth import get_current_user
 from database import get_db
+from models import User
 from schemas import TrialCreate, TrialResponse
 
 router = APIRouter(prefix="/trials", tags=["trials"])
 
 
 @router.get("", response_model=list[TrialResponse])
-def list_trials(db: Session = Depends(get_db)):
-    trials = crud.get_trials(db)
+def list_trials(
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
+):
+    trials = crud.get_trials(db, user_id=current_user.id if current_user else None)
     results = []
     for t in trials:
         plot_count, scored_count = crud.get_trial_plot_counts(db, t.id)
@@ -22,7 +27,11 @@ def list_trials(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=TrialResponse, status_code=201)
-def create_trial(data: TrialCreate, db: Session = Depends(get_db)):
+def create_trial(
+    data: TrialCreate,
+    db: Session = Depends(get_db),
+    current_user: User | None = Depends(get_current_user),
+):
     trial = crud.create_trial(
         db,
         name=data.name,
@@ -30,6 +39,7 @@ def create_trial(data: TrialCreate, db: Session = Depends(get_db)):
         location=data.location,
         start_date=data.start_date,
         end_date=data.end_date,
+        user_id=current_user.id if current_user else None,
     )
     return TrialResponse.model_validate(trial)
 

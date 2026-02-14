@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Plot, ObservationBulkItem, PlotImage, SeverityPrediction, HeightPrediction } from '../types';
 import SeveritySelector from '../components/SeveritySelector';
+import InlineReference from '../components/InlineReference';
 import ReferenceModal from '../components/ReferenceModal';
 import ImageCapture from '../components/ImageCapture';
 import HeightMeasure from '../components/HeightMeasure';
@@ -39,6 +40,7 @@ export default function ObservationEntry() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
   const [refOpen, setRefOpen] = useState(false);
+  const [traitsExpanded, setTraitsExpanded] = useState(false);
 
   // AI severity prediction state
   const [aiPrediction, setAiPrediction] = useState<SeverityPrediction | null>(null);
@@ -54,6 +56,9 @@ export default function ObservationEntry() {
   const [allPlots, setAllPlots] = useState<Plot[]>([]);
   const [currentIndex, setCurrentIndex] = useState(-1);
 
+  // Count filled secondary traits for badge
+  const filledTraits = [floweringDate, plantHeight, notes.trim()].filter(Boolean).length;
+
   const loadPlotData = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -64,7 +69,6 @@ export default function ObservationEntry() {
     setHeightAiLoading(false);
     setHeightAiError(false);
     try {
-      // Load all plots for prev/next navigation
       const plots = await api.getPlots(tId);
       setAllPlots(plots);
       const idx = plots.findIndex((p) => p.id === pId);
@@ -72,8 +76,9 @@ export default function ObservationEntry() {
       const currentPlot = idx >= 0 ? plots[idx] : null;
       setPlot(currentPlot);
 
-      // Load existing observations for this plot
       const obs = await api.getObservations(pId);
+      let hasSeverity = false;
+      let hasSecondary = false;
       setSeverity(null);
       setFloweringDate('');
       setPlantHeight('');
@@ -81,11 +86,13 @@ export default function ObservationEntry() {
       setHeightError('');
 
       for (const o of obs) {
-        if (o.trait_name === 'ergot_severity') setSeverity(Number(o.value));
-        if (o.trait_name === 'flowering_date') setFloweringDate(o.value);
-        if (o.trait_name === 'plant_height') setPlantHeight(o.value);
-        if (o.notes) setNotes(o.notes);
+        if (o.trait_name === 'ergot_severity') { setSeverity(Number(o.value)); hasSeverity = true; }
+        if (o.trait_name === 'flowering_date') { setFloweringDate(o.value); hasSecondary = true; }
+        if (o.trait_name === 'plant_height') { setPlantHeight(o.value); hasSecondary = true; }
+        if (o.notes) { setNotes(o.notes); hasSecondary = true; }
       }
+      // Auto-expand if secondary traits have data
+      setTraitsExpanded(hasSecondary);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load plot');
     } finally {
@@ -142,7 +149,7 @@ export default function ObservationEntry() {
 
   // AI severity prediction after panicle photo upload
   async function handlePanicleImageUploaded(image: PlotImage) {
-    if (severity !== null) return; // already scored, skip prediction
+    if (severity !== null) return;
 
     setAiLoading(true);
     setAiError(false);
@@ -150,7 +157,7 @@ export default function ObservationEntry() {
       const prediction = await api.predictSeverity(image.id);
       setAiPrediction(prediction);
       if (prediction.severity >= 1) {
-        setSeverity(prediction.severity); // auto-apply only valid severities
+        setSeverity(prediction.severity);
       }
     } catch {
       setAiPrediction(null);
@@ -198,7 +205,6 @@ export default function ObservationEntry() {
     if (plantHeight) {
       observations.push({ trait_name: 'plant_height', value: plantHeight, ...extras });
     }
-    // Attach notes to the last observation
     if (notes.trim() && observations.length > 0) {
       observations[observations.length - 1].notes = notes.trim();
     }
@@ -238,227 +244,273 @@ export default function ObservationEntry() {
   if (loading) return <p className="text-neutral text-center py-8">Loading...</p>;
   if (!plot) return <p className="text-error text-center py-8">{error || 'Plot not found'}</p>;
 
-  return (
-    <div className="pb-6">
-      {/* Toast */}
-      {toast && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-primary text-white px-6 py-2 rounded-full shadow-lg text-sm font-medium">
-          {toast}
-        </div>
-      )}
+  const gpsIcon = gpsStatus === 'captured' ? 'text-green-500' :
+                  gpsStatus === 'pending' ? 'text-gray-400' :
+                  gpsStatus === 'denied' ? 'text-yellow-500' : 'text-gray-300';
 
-      {/* Plot header */}
-      <div className="mb-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-neutral">{plot.plot_id}</h2>
-          <span className="text-sm text-gray-500">
-            {currentIndex + 1}/{allPlots.length}
-          </span>
-        </div>
-        <p className="text-sm text-gray-500">
-          {plot.genotype} &middot; Rep {plot.rep} &middot; R{plot.row}C{plot.column}
-        </p>
-        <div className="mt-1 text-xs">
-          {gpsStatus === 'captured' && (
-            <span className="text-primary">
-              GPS: {gpsLat!.toFixed(5)}, {gpsLng!.toFixed(5)}
-            </span>
-          )}
-          {gpsStatus === 'pending' && <span className="text-gray-400">Getting location...</span>}
-          {gpsStatus === 'denied' && <span className="text-warning">Location permission denied</span>}
-          {gpsStatus === 'unavailable' && <span className="text-gray-400">Location unavailable</span>}
-        </div>
-        {weatherStatus === 'loaded' && temperature !== null && humidity !== null && (
-          <div className="mt-1 text-xs text-gray-500">
-            {temperature.toFixed(1)}&deg;C &middot; {humidity.toFixed(0)}% RH
+  return (
+    <>
+      {/* Scrollable content area — bottom padding for sticky bar */}
+      <div className="pb-28">
+        {/* Toast */}
+        {toast && (
+          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-primary text-white px-6 py-2 rounded-full shadow-lg text-sm font-medium">
+            {toast}
           </div>
         )}
-        {weatherStatus === 'loading' && (
-          <div className="mt-1 text-xs text-gray-400">Fetching weather...</div>
+
+        {/* Compact plot header (2 lines) */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-neutral">
+              Plot {currentIndex + 1}/{allPlots.length}
+              <span className="font-normal text-gray-500 ml-2">{plot.genotype} Rep {plot.rep}</span>
+            </h2>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <span>R{plot.row}C{plot.column}</span>
+            <span className={`inline-block w-2 h-2 rounded-full ${gpsIcon}`} style={{ backgroundColor: 'currentColor' }} title={gpsStatus} />
+            {weatherStatus === 'loaded' && temperature !== null && humidity !== null && (
+              <span>{temperature.toFixed(1)}&deg;C {humidity.toFixed(0)}%RH</span>
+            )}
+          </div>
+        </div>
+
+        {/* Panicle photo */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium text-neutral mb-2">
+            Panicle Photo
+          </label>
+          <ImageCapture plotId={pId} imageType="panicle" buttonLabel="Take Panicle Photo" onImageUploaded={handlePanicleImageUploaded} />
+        </div>
+
+        {/* AI Prediction Status */}
+        {aiLoading && (
+          <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
+            <svg className="animate-spin h-4 w-4 text-blue-500" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+            </svg>
+            <span className="text-sm text-blue-700">Analyzing photo...</span>
+          </div>
         )}
-      </div>
 
-      {/* Panicle photo — placed first so user takes photo before scoring */}
-      <div className="mb-5">
-        <label className="block text-sm font-medium text-neutral mb-2">
-          Panicle Photo
-        </label>
-        <ImageCapture plotId={pId} imageType="panicle" buttonLabel="Take Panicle Photo" onImageUploaded={handlePanicleImageUploaded} />
-      </div>
+        {aiPrediction && !aiLoading && aiPrediction.severity === 0 && (
+          <div className="mb-4 px-3 py-2 bg-yellow-50 rounded-lg border border-yellow-300">
+            <span className="text-sm text-yellow-800 font-medium">Not a sorghum panicle</span>
+            {aiPrediction.reasoning && (
+              <p className="text-xs text-yellow-600 mt-1">{aiPrediction.reasoning}</p>
+            )}
+          </div>
+        )}
 
-      {/* AI Prediction Status */}
-      {aiLoading && (
-        <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
-          <svg className="animate-spin h-4 w-4 text-blue-500" viewBox="0 0 24 24" fill="none">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-          </svg>
-          <span className="text-sm text-blue-700">Analyzing photo...</span>
-        </div>
-      )}
-
-      {aiPrediction && !aiLoading && aiPrediction.severity === 0 && (
-        <div className="mb-4 px-3 py-2 bg-yellow-50 rounded-lg border border-yellow-300">
-          <span className="text-sm text-yellow-800 font-medium">
-            Not a sorghum panicle
-          </span>
-          {aiPrediction.reasoning && (
-            <p className="text-xs text-yellow-600 mt-1">{aiPrediction.reasoning}</p>
-          )}
-          <p className="text-xs text-yellow-600 mt-1">You can still score manually if this is incorrect.</p>
-        </div>
-      )}
-
-      {aiPrediction && !aiLoading && aiPrediction.severity >= 1 && (
-        <div className="mb-4 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
-          <div className="flex items-center gap-2">
+        {aiPrediction && !aiLoading && aiPrediction.severity >= 1 && (
+          <div className="mb-4 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
             <span className="text-sm text-blue-700">
               AI set severity to <strong>{aiPrediction.severity}</strong>
               {aiPrediction.confidence >= 0.8 ? '' : ' (low confidence)'}
               {' \u2014 '}tap below to change
             </span>
+            {aiPrediction.reasoning && (
+              <p className="text-xs text-blue-500 mt-1">{aiPrediction.reasoning}</p>
+            )}
           </div>
-          {aiPrediction.reasoning && (
-            <p className="text-xs text-blue-500 mt-1">{aiPrediction.reasoning}</p>
+        )}
+
+        {aiError && !aiLoading && !aiPrediction && (
+          <div className="mb-4 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
+            <span className="text-sm text-gray-500">AI analysis unavailable. Score manually below.</span>
+          </div>
+        )}
+
+        {/* Ergot Severity */}
+        <div className="mb-3">
+          <label className="block text-sm font-medium text-neutral mb-2">
+            Ergot Severity
+          </label>
+          <SeveritySelector value={severity} onChange={setSeverity} />
+        </div>
+
+        {/* Inline reference image */}
+        <div className="mb-4">
+          <InlineReference severity={severity} />
+          <button
+            type="button"
+            onClick={() => setRefOpen(true)}
+            className="mt-1 text-xs text-primary underline min-h-[36px]"
+          >
+            View All References
+          </button>
+        </div>
+
+        {/* Collapsible More Traits section */}
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={() => setTraitsExpanded(!traitsExpanded)}
+            className="w-full flex items-center justify-between py-3 px-3 bg-gray-50 rounded-lg border border-gray-200 min-h-[48px]"
+          >
+            <span className="text-sm font-medium text-neutral">
+              More Traits
+              {filledTraits > 0 && (
+                <span className="ml-2 inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary text-white text-xs font-bold">
+                  {filledTraits}
+                </span>
+              )}
+              <span className="text-gray-400 ml-1">/ 3</span>
+            </span>
+            <svg
+              className={`w-5 h-5 text-gray-400 transition-transform ${traitsExpanded ? 'rotate-180' : ''}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {traitsExpanded && (
+            <div className="mt-3 space-y-4 pl-1">
+              {/* Flowering Date */}
+              <div>
+                <label className="block text-sm font-medium text-neutral mb-1">
+                  Flowering Date
+                </label>
+                <div className="flex gap-2 items-center">
+                  <button
+                    type="button"
+                    onClick={() => setFloweringDate(new Date().toISOString().split('T')[0])}
+                    className={`px-3 py-2 rounded-lg text-xs font-medium min-h-[40px] border ${
+                      floweringDate === new Date().toISOString().split('T')[0]
+                        ? 'bg-primary text-white border-primary'
+                        : 'bg-white text-primary border-primary'
+                    }`}
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() - 1);
+                      setFloweringDate(d.toISOString().split('T')[0]);
+                    }}
+                    className={`px-3 py-2 rounded-lg text-xs font-medium min-h-[40px] border ${
+                      floweringDate === (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0]; })()
+                        ? 'bg-primary text-white border-primary'
+                        : 'bg-white text-primary border-primary'
+                    }`}
+                  >
+                    Yesterday
+                  </button>
+                  <input
+                    type="date"
+                    value={floweringDate}
+                    onChange={(e) => setFloweringDate(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm min-h-[40px]"
+                  />
+                </div>
+              </div>
+
+              {/* Height Measurement */}
+              <div>
+                <label className="block text-sm font-medium text-neutral mb-2">
+                  Height
+                </label>
+                <HeightMeasure
+                  plotId={pId}
+                  plantHeight={plantHeight}
+                  onHeightChange={(h) => {
+                    setPlantHeight(h);
+                    validateHeight(h);
+                  }}
+                  heightPrediction={heightPrediction}
+                  heightAiLoading={heightAiLoading}
+                  heightAiError={heightAiError}
+                  onHeightPrediction={setHeightPrediction}
+                  onHeightAiLoading={setHeightAiLoading}
+                  onHeightAiError={setHeightAiError}
+                />
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  value={plantHeight}
+                  onChange={(e) => {
+                    setPlantHeight(e.target.value);
+                    validateHeight(e.target.value);
+                  }}
+                  placeholder="50-400 cm"
+                  min={50}
+                  max={400}
+                  className={`w-full mt-2 px-3 py-2 border rounded-lg text-sm ${
+                    heightError ? 'border-error' : 'border-gray-300'
+                  }`}
+                />
+                {heightError && (
+                  <p className="text-error text-xs mt-1">{heightError}</p>
+                )}
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-sm font-medium text-neutral mb-1">
+                  Notes
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Optional observations..."
+                  rows={2}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none"
+                />
+              </div>
+            </div>
           )}
         </div>
-      )}
 
-      {aiError && !aiLoading && !aiPrediction && (
-        <div className="mb-4 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
-          <span className="text-sm text-gray-500">
-            AI analysis unavailable. Score manually below.
-          </span>
+        {error && <p className="text-error text-sm mb-3">{error}</p>}
+
+        {/* Save (Stay Here) as text link */}
+        <div className="text-center">
+          <button
+            onClick={() => handleSave(false)}
+            disabled={saving}
+            className="text-sm text-primary underline min-h-[36px] disabled:opacity-50"
+          >
+            Save (Stay Here)
+          </button>
         </div>
-      )}
-
-      {/* Ergot Severity */}
-      <div className="mb-5">
-        <label className="block text-sm font-medium text-neutral mb-2">
-          Ergot Severity
-        </label>
-        <SeveritySelector value={severity} onChange={setSeverity} />
-        <button
-          type="button"
-          onClick={() => setRefOpen(true)}
-          className="mt-2 text-sm text-primary underline min-h-[44px]"
-        >
-          View Reference Images
-        </button>
       </div>
 
-      {/* Flowering Date */}
-      <div className="mb-5">
-        <label className="block text-sm font-medium text-neutral mb-1">
-          Flowering Date
-        </label>
-        <input
-          type="date"
-          value={floweringDate}
-          onChange={(e) => setFloweringDate(e.target.value)}
-          className="w-full px-3 py-3 border border-gray-300 rounded-lg text-base"
-        />
-      </div>
-
-      {/* Height Measurement */}
-      <div className="mb-5">
-        <label className="block text-sm font-medium text-neutral mb-2">
-          Measure Height
-        </label>
-        <HeightMeasure
-          plotId={pId}
-          plantHeight={plantHeight}
-          onHeightChange={(h) => {
-            setPlantHeight(h);
-            validateHeight(h);
-          }}
-          heightPrediction={heightPrediction}
-          heightAiLoading={heightAiLoading}
-          heightAiError={heightAiError}
-          onHeightPrediction={setHeightPrediction}
-          onHeightAiLoading={setHeightAiLoading}
-          onHeightAiError={setHeightAiError}
-        />
-      </div>
-
-      {/* Plant Height */}
-      <div className="mb-5">
-        <label className="block text-sm font-medium text-neutral mb-1">
-          Plant Height (cm)
-        </label>
-        <input
-          type="number"
-          inputMode="numeric"
-          value={plantHeight}
-          onChange={(e) => {
-            setPlantHeight(e.target.value);
-            validateHeight(e.target.value);
-          }}
-          placeholder="50-400"
-          min={50}
-          max={400}
-          className={`w-full px-3 py-3 border rounded-lg text-base ${
-            heightError ? 'border-error' : 'border-gray-300'
-          }`}
-        />
-        {heightError && (
-          <p className="text-error text-xs mt-1">{heightError}</p>
-        )}
-      </div>
-
-      {/* Notes */}
-      <div className="mb-5">
-        <label className="block text-sm font-medium text-neutral mb-1">
-          Notes
-        </label>
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Optional observations..."
-          rows={2}
-          className="w-full px-3 py-3 border border-gray-300 rounded-lg text-base resize-none"
-        />
-      </div>
-
-      {error && <p className="text-error text-sm mb-3">{error}</p>}
-
-      {/* Save & Next */}
-      <button
-        onClick={() => handleSave(true)}
-        disabled={saving}
-        className="w-full py-3 bg-primary text-white rounded-lg font-semibold text-lg min-h-[48px] disabled:opacity-50 mb-3"
-      >
-        {saving ? 'Saving...' : 'Save & Next'}
-      </button>
-
-      {/* Save only */}
-      <button
-        onClick={() => handleSave(false)}
-        disabled={saving}
-        className="w-full py-3 bg-card text-primary rounded-lg font-semibold text-base min-h-[48px] border-2 border-primary disabled:opacity-50 mb-4"
-      >
-        Save (Stay Here)
-      </button>
-
-      {/* Prev / Next navigation */}
-      <div className="flex gap-3">
-        <button
-          onClick={() => goToPlot(currentIndex - 1)}
-          disabled={currentIndex <= 0}
-          className="flex-1 py-3 bg-card text-neutral rounded-lg font-medium min-h-[48px] border border-gray-300 disabled:opacity-30"
-        >
-          &larr; Prev
-        </button>
-        <button
-          onClick={() => goToPlot(currentIndex + 1)}
-          disabled={currentIndex >= allPlots.length - 1}
-          className="flex-1 py-3 bg-card text-neutral rounded-lg font-medium min-h-[48px] border border-gray-300 disabled:opacity-30"
-        >
-          Next &rarr;
-        </button>
+      {/* STICKY BOTTOM ACTION BAR */}
+      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] px-4 py-3">
+        <div className="max-w-2xl mx-auto flex items-center gap-3">
+          <button
+            onClick={() => goToPlot(currentIndex - 1)}
+            disabled={currentIndex <= 0}
+            className="px-4 py-3 bg-card text-neutral rounded-lg font-medium min-h-[48px] border border-gray-300 disabled:opacity-30"
+          >
+            &larr;
+          </button>
+          <button
+            onClick={() => handleSave(true)}
+            disabled={saving}
+            className="flex-1 py-3 bg-primary text-white rounded-lg font-semibold text-base min-h-[48px] disabled:opacity-50"
+          >
+            {saving ? 'Saving...' : 'Save & Next'}
+          </button>
+          <button
+            onClick={() => goToPlot(currentIndex + 1)}
+            disabled={currentIndex >= allPlots.length - 1}
+            className="px-4 py-3 bg-card text-neutral rounded-lg font-medium min-h-[48px] border border-gray-300 disabled:opacity-30"
+          >
+            &rarr;
+          </button>
+        </div>
+        <p className="text-center text-xs text-gray-400 mt-1">
+          {currentIndex + 1} / {allPlots.length}
+        </p>
       </div>
 
       <ReferenceModal open={refOpen} onClose={() => setRefOpen(false)} />
-    </div>
+    </>
   );
 }

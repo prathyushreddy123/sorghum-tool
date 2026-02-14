@@ -1,3 +1,11 @@
+const SEVERITY_COLORS: Record<number, string> = {
+  1: '#4CAF50',
+  2: '#8BC34A',
+  3: '#FFC107',
+  4: '#FF9800',
+  5: '#D32F2F',
+};
+
 const LEVELS = [
   { score: 1, label: 'None', pct: '0%' },
   { score: 2, label: 'Low', pct: '1-10%' },
@@ -16,6 +24,8 @@ export default function SeveritySelector({ value, onChange }: Props) {
     <div className="flex justify-between gap-2">
       {LEVELS.map(({ score, label, pct }) => {
         const selected = value === score;
+        const color = SEVERITY_COLORS[score];
+        const useLightText = score >= 4;
         return (
           <button
             key={score}
@@ -23,11 +33,13 @@ export default function SeveritySelector({ value, onChange }: Props) {
             onClick={() => onChange(score)}
             className={`
               flex-1 py-3 rounded-lg border-2 min-h-[60px] flex flex-col items-center justify-center transition-colors
-              ${selected
-                ? 'bg-primary text-white border-primary'
-                : 'bg-white text-neutral border-gray-300'
-              }
+              ${!selected ? 'bg-white text-neutral' : ''}
             `}
+            style={
+              selected
+                ? { backgroundColor: color, borderColor: color, color: useLightText ? '#fff' : '#333' }
+                : { borderColor: color + '80' }
+            }
           >
             <span className="text-2xl font-bold leading-tight">{score}</span>
             <span className="text-xs leading-tight">{label}</span>

@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+.env
+venv/
+uploads/
+*.db
+*.db-journal
+.git
+alembic/versions/__pycache__
+# Keep reference_images/ — needed by AI classifier

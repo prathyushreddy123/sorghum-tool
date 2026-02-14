@@ -89,13 +89,6 @@ export default function TrialList() {
         + New Trial
       </Link>
 
-      <Link
-        to="/settings"
-        className="mt-3 w-full py-3 bg-card text-neutral rounded-lg font-medium text-base min-h-[48px] flex items-center justify-center border border-gray-300"
-      >
-        Settings
-      </Link>
-
       <ConfirmDialog
         open={deletingId !== null}
         title="Delete Trial"

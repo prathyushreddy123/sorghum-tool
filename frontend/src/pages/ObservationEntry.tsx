@@ -7,6 +7,7 @@ import InlineReference from '../components/InlineReference';
 import ReferenceModal from '../components/ReferenceModal';
 import ImageCapture from '../components/ImageCapture';
 import HeightMeasure from '../components/HeightMeasure';
+import Snackbar from '../components/Snackbar';
 
 export default function ObservationEntry() {
   const { trialId, plotId } = useParams<{ trialId: string; plotId: string }>();
@@ -38,7 +39,7 @@ export default function ObservationEntry() {
 
   // UI state
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState('');
+  const [snackbar, setSnackbar] = useState<{ message: string; undoData?: { plotId: number; severity: number | null; floweringDate: string; plantHeight: string; notes: string } } | null>(null);
   const [refOpen, setRefOpen] = useState(false);
   const [traitsExpanded, setTraitsExpanded] = useState(false);
 
@@ -103,13 +104,6 @@ export default function ObservationEntry() {
   useEffect(() => {
     loadPlotData();
   }, [loadPlotData]);
-
-  // Auto-dismiss toast
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(''), 2000);
-    return () => clearTimeout(timer);
-  }, [toast]);
 
   // GPS geolocation
   useEffect(() => {
@@ -214,19 +208,27 @@ export default function ObservationEntry() {
       return;
     }
 
+    // Snapshot current values for undo
+    const undoData = { plotId: pId, severity, floweringDate, plantHeight, notes };
+
     setSaving(true);
     setError('');
     try {
       await api.saveObservations(pId, observations);
-      setToast('Saved!');
+
+      const severityLabel = severity !== null ? `Severity: ${severity}` : '';
+      const savedMsg = `Saved Plot ${currentIndex + 1}${severityLabel ? ` (${severityLabel})` : ''}`;
 
       if (advance) {
         const result = await api.getNextUnscored(tId, pId);
         if (result.next_plot_id && result.next_plot_id !== pId) {
+          setSnackbar({ message: savedMsg, undoData });
           navigate(`/trials/${tId}/collect/${result.next_plot_id}`, { replace: true });
         } else {
-          setToast('All plots scored!');
+          setSnackbar({ message: 'All plots scored!' });
         }
+      } else {
+        setSnackbar({ message: savedMsg, undoData });
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed');
@@ -241,6 +243,39 @@ export default function ObservationEntry() {
     }
   }
 
+  async function handleUndo() {
+    if (!snackbar?.undoData) return;
+    const { plotId, severity: prevSev, floweringDate: prevFD, plantHeight: prevPH, notes: prevNotes } = snackbar.undoData;
+
+    // Rebuild observations with previous values
+    const observations: ObservationBulkItem[] = [];
+    if (prevSev !== null) observations.push({ trait_name: 'ergot_severity', value: String(prevSev) });
+    if (prevFD) observations.push({ trait_name: 'flowering_date', value: prevFD });
+    if (prevPH) observations.push({ trait_name: 'plant_height', value: prevPH });
+    if (prevNotes.trim() && observations.length > 0) {
+      observations[observations.length - 1].notes = prevNotes.trim();
+    }
+
+    try {
+      if (observations.length > 0) {
+        await api.saveObservations(plotId, observations);
+      }
+      // Navigate back to that plot if we moved away
+      if (plotId !== pId) {
+        navigate(`/trials/${tId}/collect/${plotId}`, { replace: true });
+      } else {
+        // Restore form state
+        setSeverity(prevSev);
+        setFloweringDate(prevFD);
+        setPlantHeight(prevPH);
+        setNotes(prevNotes);
+      }
+    } catch {
+      setError('Undo failed');
+    }
+    setSnackbar(null);
+  }
+
   if (loading) return <p className="text-neutral text-center py-8">Loading...</p>;
   if (!plot) return <p className="text-error text-center py-8">{error || 'Plot not found'}</p>;
 
@@ -252,11 +287,13 @@ export default function ObservationEntry() {
     <>
       {/* Scrollable content area — bottom padding for sticky bar */}
       <div className="pb-28">
-        {/* Toast */}
-        {toast && (
-          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-primary text-white px-6 py-2 rounded-full shadow-lg text-sm font-medium">
-            {toast}
-          </div>
+        {/* Snackbar */}
+        {snackbar && (
+          <Snackbar
+            message={snackbar.message}
+            onUndo={snackbar.undoData ? handleUndo : undefined}
+            onDismiss={() => setSnackbar(null)}
+          />
         )}
 
         {/* Compact plot header (2 lines) */}

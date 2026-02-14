@@ -1,15 +1,17 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import type { Trial, TrialStats } from '../types';
+import type { Trial, TrialStats, HeatmapData } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import SeverityHistogram from '../components/SeverityHistogram';
+import MiniFieldPlan from '../components/MiniFieldPlan';
 
 export default function TrialDashboard() {
   const { trialId } = useParams<{ trialId: string }>();
   const navigate = useNavigate();
   const [trial, setTrial] = useState<Trial | null>(null);
   const [stats, setStats] = useState<TrialStats | null>(null);
+  const [heatmap, setHeatmap] = useState<HeatmapData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showDelete, setShowDelete] = useState(false);
@@ -19,8 +21,8 @@ export default function TrialDashboard() {
     if (!trialId) return;
     const id = Number(trialId);
     setLoading(true);
-    Promise.all([api.getTrial(id), api.getStats(id)])
-      .then(([t, s]) => { setTrial(t); setStats(s); })
+    Promise.all([api.getTrial(id), api.getStats(id), api.getHeatmap(id)])
+      .then(([t, s, h]) => { setTrial(t); setStats(s); setHeatmap(h); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [trialId]);
@@ -100,6 +102,21 @@ export default function TrialDashboard() {
         <div className="text-center py-8 mb-6 bg-card rounded-lg shadow">
           <p className="text-neutral text-lg mb-1">No plots yet</p>
           <p className="text-sm text-gray-400">Import a CSV to add plots to this trial.</p>
+        </div>
+      )}
+
+      {/* Mini field plan grid */}
+      {heatmap && heatmap.cells.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-sm font-semibold text-neutral mb-2">Field Plan</h3>
+          <div className="bg-card rounded-lg p-3 shadow">
+            <MiniFieldPlan
+              trialId={trial.id}
+              rows={heatmap.rows}
+              columns={heatmap.columns}
+              cells={heatmap.cells}
+            />
+          </div>
         </div>
       )}
 

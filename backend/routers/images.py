@@ -2,7 +2,7 @@ import os
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 import crud
@@ -10,6 +10,7 @@ from database import get_db
 from models import Image
 from schemas import HeightPredictionResponse, ImageResponse, SeverityPredictionResponse
 from services.ai_classifier import predict_height, predict_severity
+from services.storage import get_storage, LocalStorage
 
 router = APIRouter(tags=["images"])
 
@@ -49,10 +50,8 @@ async def upload_image(
     ext = os.path.splitext(file.filename or "image.jpg")[1] or ".jpg"
     filename = f"{uuid.uuid4().hex}{ext}"
 
-    crud.ensure_upload_dir()
-    filepath = os.path.join(crud.UPLOAD_DIR, filename)
-    with open(filepath, "wb") as f:
-        f.write(contents)
+    storage = get_storage()
+    storage.save(filename, contents)
 
     return crud.create_image(db, plot_id, filename, file.filename or "image.jpg", image_type=image_type)
 
@@ -71,17 +70,31 @@ def list_images(
 
 @router.delete("/images/{image_id}")
 def delete_image(image_id: int, db: Session = Depends(get_db)):
-    if not crud.delete_image(db, image_id):
+    image = db.query(Image).filter(Image.id == image_id).first()
+    if not image:
         raise HTTPException(status_code=404, detail="Image not found")
+
+    storage = get_storage()
+    storage.delete(image.filename)
+
+    db.delete(image)
+    db.commit()
     return {"success": True}
 
 
 @router.get("/images/{filename}")
 def serve_image(filename: str):
-    filepath = os.path.join(crud.UPLOAD_DIR, filename)
-    if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(filepath)
+    storage = get_storage()
+    if isinstance(storage, LocalStorage):
+        if not storage.exists(filename):
+            raise HTTPException(status_code=404, detail="Image not found")
+        return FileResponse(storage._path(filename))
+    else:
+        # For cloud storage, redirect to signed URL
+        if not storage.exists(filename):
+            raise HTTPException(status_code=404, detail="Image not found")
+        url = storage.get_url(filename)
+        return RedirectResponse(url=url)
 
 
 @router.post(
@@ -89,17 +102,15 @@ def serve_image(filename: str):
     response_model=SeverityPredictionResponse,
 )
 async def predict_image_severity(image_id: int, db: Session = Depends(get_db)):
-    """Run AI severity prediction on an uploaded image."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
 
-    filepath = os.path.join(crud.UPLOAD_DIR, image.filename)
-    if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail="Image file not found on disk")
+    storage = get_storage()
+    if not storage.exists(image.filename):
+        raise HTTPException(status_code=404, detail="Image file not found")
 
-    with open(filepath, "rb") as f:
-        image_bytes = f.read()
+    image_bytes = storage.get_bytes(image.filename)
 
     ext = os.path.splitext(image.filename)[1].lower()
     mime_type = MIME_MAP.get(ext, "image/jpeg")
@@ -119,17 +130,15 @@ async def predict_image_severity(image_id: int, db: Session = Depends(get_db)):
     response_model=HeightPredictionResponse,
 )
 async def predict_image_height(image_id: int, db: Session = Depends(get_db)):
-    """Run AI height estimation on an uploaded full-plant image."""
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
 
-    filepath = os.path.join(crud.UPLOAD_DIR, image.filename)
-    if not os.path.exists(filepath):
-        raise HTTPException(status_code=404, detail="Image file not found on disk")
+    storage = get_storage()
+    if not storage.exists(image.filename):
+        raise HTTPException(status_code=404, detail="Image file not found")
 
-    with open(filepath, "rb") as f:
-        image_bytes = f.read()
+    image_bytes = storage.get_bytes(image.filename)
 
     ext = os.path.splitext(image.filename)[1].lower()
     mime_type = MIME_MAP.get(ext, "image/jpeg")

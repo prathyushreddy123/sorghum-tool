@@ -327,10 +327,6 @@ def revoke_api_key(db: Session, key_id: int) -> bool:
 
 # --- Images ---
 
-def ensure_upload_dir():
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-
 def create_image(db: Session, plot_id: int, filename: str, original_name: str, image_type: str = "panicle") -> Image:
     img = Image(plot_id=plot_id, filename=filename, original_name=original_name, image_type=image_type)
     db.add(img)
@@ -350,9 +346,6 @@ def delete_image(db: Session, image_id: int) -> bool:
     img = db.query(Image).filter(Image.id == image_id).first()
     if not img:
         return False
-    filepath = os.path.join(UPLOAD_DIR, img.filename)
-    if os.path.exists(filepath):
-        os.remove(filepath)
     db.delete(img)
     db.commit()
     return True

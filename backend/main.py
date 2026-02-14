@@ -1,6 +1,9 @@
+import logging
+
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import inspect, text
 
 from config import settings
 from database import Base, engine
@@ -8,21 +11,16 @@ import models  # noqa: F401 — registers models with Base.metadata
 from middleware import APIKeyMiddleware
 from routers import auth, images, observations, plots, stats, trials
 
-Base.metadata.create_all(bind=engine)
+logger = logging.getLogger(__name__)
 
-# Idempotent migrations for columns added after initial schema
-with engine.connect() as _conn:
-    _columns = [c["name"] for c in inspect(engine).get_columns("images")]
-    if "image_type" not in _columns:
-        _conn.execute(text("ALTER TABLE images ADD COLUMN image_type VARCHAR NOT NULL DEFAULT 'panicle'"))
-        _conn.commit()
-
-    _tables = inspect(engine).get_table_names()
-    if "trials" in _tables:
-        _trial_columns = [c["name"] for c in inspect(engine).get_columns("trials")]
-        if "user_id" not in _trial_columns:
-            _conn.execute(text("ALTER TABLE trials ADD COLUMN user_id INTEGER REFERENCES users(id)"))
-            _conn.commit()
+# Run Alembic migrations on startup (creates tables if fresh DB)
+try:
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
+except Exception as e:
+    # Fallback: create tables directly (e.g. in test environments without alembic.ini)
+    logger.warning(f"Alembic migration failed ({e}), falling back to create_all()")
+    Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="SorghumField API", version="0.1.0")
 

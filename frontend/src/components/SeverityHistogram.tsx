@@ -41,8 +41,8 @@ export default function SeverityHistogram({ data }: Props) {
         <XAxis dataKey="label" tick={{ fontSize: 12 }} />
         <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
         <Tooltip
-          formatter={(value: number) => [value, 'Plots']}
-          labelFormatter={(label: string) => `Severity: ${label}`}
+          formatter={(value) => [value, 'Plots']}
+          labelFormatter={(label) => `Severity: ${label}`}
         />
         <Bar dataKey="count" radius={[4, 4, 0, 0]}>
           {chartData.map((entry) => (

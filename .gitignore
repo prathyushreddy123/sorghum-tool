@@ -6,6 +6,7 @@ backend/venv/
 *.db
 backend/uploads/
 backend/.env
+.env.deploy
 
 # Node
 frontend/node_modules/

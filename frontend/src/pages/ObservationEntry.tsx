@@ -72,7 +72,6 @@ export default function ObservationEntry() {
       setPlot(currentPlot);
 
       const obs = await api.getObservations(pId);
-      let hasSeverity = false;
       let hasSecondary = false;
       setSeverity(null);
       setFloweringDate('');
@@ -81,7 +80,7 @@ export default function ObservationEntry() {
       setHeightError('');
 
       for (const o of obs) {
-        if (o.trait_name === 'ergot_severity') { setSeverity(Number(o.value)); hasSeverity = true; }
+        if (o.trait_name === 'ergot_severity') { setSeverity(Number(o.value)); }
         if (o.trait_name === 'flowering_date') { setFloweringDate(o.value); hasSecondary = true; }
         if (o.trait_name === 'plant_height') { setPlantHeight(o.value); hasSecondary = true; }
         if (o.notes) { setNotes(o.notes); hasSecondary = true; }

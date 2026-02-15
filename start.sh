@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start SorghumField backend, frontend, and Cloudflare tunnels
+# Start FieldScout backend, frontend, and Cloudflare tunnels
 # Usage: ./start.sh
 # Logs: /tmp/sorghum-*.log
 
@@ -17,7 +17,7 @@ fi
 # Kill any existing instances
 "$DIR/stop.sh" 2>/dev/null || true
 
-echo "Starting SorghumField..."
+echo "Starting FieldScout..."
 
 # 1. Backend (FastAPI)
 cd "$DIR/backend"
@@ -65,7 +65,7 @@ FRONTEND_URL=$(grep -oP 'https://[a-z0-9-]+\.trycloudflare\.com' "$LOG_DIR/sorgh
 
 echo ""
 echo "=========================================="
-echo "  SorghumField is running!"
+echo "  FieldScout is running!"
 echo ""
 echo "  Phone URL: $FRONTEND_URL"
 echo "  Backend:   $BACKEND_URL"

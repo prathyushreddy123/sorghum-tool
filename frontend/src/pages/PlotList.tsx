@@ -137,14 +137,14 @@ export default function PlotList() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setScanning(true)}
-            className="px-3 py-2 bg-card text-primary rounded-lg text-sm font-medium min-h-[44px] border border-primary"
+            className="px-3 py-2 bg-card text-primary rounded-lg text-sm font-medium min-h-[44px] border border-primary hover:bg-primary-light transition-colors"
           >
             Scan
           </button>
           <button
             onClick={() => fileRef.current?.click()}
             disabled={importing}
-            className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium min-h-[44px] disabled:opacity-50"
+            className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium min-h-[44px] disabled:opacity-50 hover:bg-primary-dark transition-colors"
           >
             {importing ? 'Importing...' : 'Import CSV'}
           </button>
@@ -179,10 +179,10 @@ export default function PlotList() {
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`flex-1 py-2 rounded-lg text-sm font-medium min-h-[44px] capitalize ${
+            className={`flex-1 py-2 rounded-lg text-sm font-medium min-h-[44px] capitalize transition-colors ${
               filter === f
-                ? 'bg-primary text-white'
-                : 'bg-card text-neutral border border-gray-300'
+                ? 'bg-primary text-white hover:bg-primary-dark'
+                : 'bg-card text-neutral border border-gray-300 hover:bg-gray-50'
             }`}
           >
             {f}{tabCount(f)}

@@ -32,8 +32,8 @@ export default function SeveritySelector({ value, onChange }: Props) {
             type="button"
             onClick={() => onChange(score)}
             className={`
-              flex-1 py-3 rounded-lg border-2 min-h-[60px] flex flex-col items-center justify-center transition-colors
-              ${!selected ? 'bg-white text-neutral' : ''}
+              flex-1 py-3 rounded-lg border-2 min-h-[60px] flex flex-col items-center justify-center transition-all cursor-pointer
+              ${!selected ? 'bg-white text-neutral hover:bg-gray-50 hover:scale-105' : 'hover:opacity-90'}
             `}
             style={
               selected

@@ -8,6 +8,7 @@ import ReferenceModal from '../components/ReferenceModal';
 import ImageCapture from '../components/ImageCapture';
 import HeightMeasure from '../components/HeightMeasure';
 import Snackbar from '../components/Snackbar';
+import { useWeather } from '../hooks/useWeather';
 
 export default function ObservationEntry() {
   const { trialId, plotId } = useParams<{ trialId: string; plotId: string }>();
@@ -27,15 +28,8 @@ export default function ObservationEntry() {
   const [notes, setNotes] = useState('');
   const [heightError, setHeightError] = useState('');
 
-  // GPS state
-  const [gpsLat, setGpsLat] = useState<number | null>(null);
-  const [gpsLng, setGpsLng] = useState<number | null>(null);
-  const [gpsStatus, setGpsStatus] = useState<'pending' | 'captured' | 'denied' | 'unavailable'>('pending');
-
-  // Weather state
-  const [temperature, setTemperature] = useState<number | null>(null);
-  const [humidity, setHumidity] = useState<number | null>(null);
-  const [weatherStatus, setWeatherStatus] = useState<'idle' | 'loading' | 'loaded' | 'error'>('idle');
+  // GPS + Weather (shared hook)
+  const { temperature, humidity, gpsLat, gpsLng, gpsStatus, weatherStatus } = useWeather();
 
   // UI state
   const [saving, setSaving] = useState(false);
@@ -104,42 +98,6 @@ export default function ObservationEntry() {
   useEffect(() => {
     loadPlotData();
   }, [loadPlotData]);
-
-  // GPS geolocation
-  useEffect(() => {
-    if (!navigator.geolocation) {
-      setGpsStatus('unavailable');
-      return;
-    }
-    setGpsStatus('pending');
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setGpsLat(pos.coords.latitude);
-        setGpsLng(pos.coords.longitude);
-        setGpsStatus('captured');
-      },
-      (err) => {
-        setGpsStatus(err.code === err.PERMISSION_DENIED ? 'denied' : 'unavailable');
-      },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  }, [pId]);
-
-  // Weather fetch (depends on GPS)
-  useEffect(() => {
-    if (gpsStatus !== 'captured' || gpsLat === null || gpsLng === null) return;
-    setWeatherStatus('loading');
-    fetch(
-      `https://api.open-meteo.com/v1/forecast?latitude=${gpsLat}&longitude=${gpsLng}&current=temperature_2m,relative_humidity_2m`
-    )
-      .then((res) => res.json())
-      .then((data) => {
-        setTemperature(data.current.temperature_2m);
-        setHumidity(data.current.relative_humidity_2m);
-        setWeatherStatus('loaded');
-      })
-      .catch(() => setWeatherStatus('error'));
-  }, [gpsStatus, gpsLat, gpsLng]);
 
   // AI severity prediction after panicle photo upload
   async function handlePanicleImageUploaded(image: PlotImage) {
@@ -374,7 +332,7 @@ export default function ObservationEntry() {
           <button
             type="button"
             onClick={() => setRefOpen(true)}
-            className="mt-1 text-xs text-primary underline min-h-[36px]"
+            className="mt-1 text-xs text-primary underline min-h-[36px] cursor-pointer hover:text-primary-dark"
           >
             View All References
           </button>
@@ -385,7 +343,7 @@ export default function ObservationEntry() {
           <button
             type="button"
             onClick={() => setTraitsExpanded(!traitsExpanded)}
-            className="w-full flex items-center justify-between py-3 px-3 bg-gray-50 rounded-lg border border-gray-200 min-h-[48px]"
+            className="w-full flex items-center justify-between py-3 px-3 bg-gray-50 rounded-lg border border-gray-200 min-h-[48px] cursor-pointer hover:bg-gray-100 transition-colors"
           >
             <span className="text-sm font-medium text-neutral">
               More Traits
@@ -415,10 +373,10 @@ export default function ObservationEntry() {
                   <button
                     type="button"
                     onClick={() => setFloweringDate(new Date().toISOString().split('T')[0])}
-                    className={`px-3 py-2 rounded-lg text-xs font-medium min-h-[40px] border ${
+                    className={`px-3 py-2 rounded-lg text-xs font-medium min-h-[40px] border cursor-pointer transition-colors ${
                       floweringDate === new Date().toISOString().split('T')[0]
-                        ? 'bg-primary text-white border-primary'
-                        : 'bg-white text-primary border-primary'
+                        ? 'bg-primary text-white border-primary hover:bg-primary-dark'
+                        : 'bg-white text-primary border-primary hover:bg-primary-light'
                     }`}
                   >
                     Today
@@ -430,10 +388,10 @@ export default function ObservationEntry() {
                       d.setDate(d.getDate() - 1);
                       setFloweringDate(d.toISOString().split('T')[0]);
                     }}
-                    className={`px-3 py-2 rounded-lg text-xs font-medium min-h-[40px] border ${
+                    className={`px-3 py-2 rounded-lg text-xs font-medium min-h-[40px] border cursor-pointer transition-colors ${
                       floweringDate === (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0]; })()
-                        ? 'bg-primary text-white border-primary'
-                        : 'bg-white text-primary border-primary'
+                        ? 'bg-primary text-white border-primary hover:bg-primary-dark'
+                        : 'bg-white text-primary border-primary hover:bg-primary-light'
                     }`}
                   >
                     Yesterday
@@ -510,7 +468,7 @@ export default function ObservationEntry() {
           <button
             onClick={() => handleSave(false)}
             disabled={saving}
-            className="text-sm text-primary underline min-h-[36px] disabled:opacity-50"
+            className="text-sm text-primary underline min-h-[36px] disabled:opacity-50 cursor-pointer hover:text-primary-dark disabled:cursor-not-allowed"
           >
             Save (Stay Here)
           </button>
@@ -523,21 +481,21 @@ export default function ObservationEntry() {
           <button
             onClick={() => goToPlot(currentIndex - 1)}
             disabled={currentIndex <= 0}
-            className="px-4 py-3 bg-card text-neutral rounded-lg font-medium min-h-[48px] border border-gray-300 disabled:opacity-30"
+            className="px-4 py-3 bg-card text-neutral rounded-lg font-medium min-h-[48px] border border-gray-300 disabled:opacity-30 cursor-pointer hover:bg-gray-50 disabled:cursor-not-allowed transition-colors"
           >
             &larr;
           </button>
           <button
             onClick={() => handleSave(true)}
             disabled={saving}
-            className="flex-1 py-3 bg-primary text-white rounded-lg font-semibold text-base min-h-[48px] disabled:opacity-50"
+            className="flex-1 py-3 bg-primary text-white rounded-lg font-semibold text-base min-h-[48px] disabled:opacity-50 cursor-pointer hover:bg-primary-dark disabled:cursor-not-allowed transition-colors"
           >
             {saving ? 'Saving...' : 'Save & Next'}
           </button>
           <button
             onClick={() => goToPlot(currentIndex + 1)}
             disabled={currentIndex >= allPlots.length - 1}
-            className="px-4 py-3 bg-card text-neutral rounded-lg font-medium min-h-[48px] border border-gray-300 disabled:opacity-30"
+            className="px-4 py-3 bg-card text-neutral rounded-lg font-medium min-h-[48px] border border-gray-300 disabled:opacity-30 cursor-pointer hover:bg-gray-50 disabled:cursor-not-allowed transition-colors"
           >
             &rarr;
           </button>

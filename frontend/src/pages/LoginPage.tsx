@@ -31,8 +31,8 @@ export default function LoginPage() {
     <div className="min-h-screen bg-background flex items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-primary">SorghumField</h1>
-          <p className="text-sm text-gray-500 mt-1">Phenotyping data collection</p>
+          <h1 className="text-2xl font-bold text-primary">FieldScout</h1>
+          <p className="text-sm text-gray-500 mt-1">Smart field phenotyping</p>
         </div>
 
         <div className="bg-card rounded-lg shadow p-6">
@@ -87,7 +87,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 bg-primary text-white rounded-lg font-semibold text-base min-h-[48px] disabled:opacity-50"
+              className="w-full py-3 bg-primary text-white rounded-lg font-semibold text-base min-h-[48px] disabled:opacity-50 hover:bg-primary-dark transition-colors"
             >
               {loading ? 'Please wait...' : isRegister ? 'Create Account' : 'Sign In'}
             </button>
@@ -97,7 +97,7 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={() => { setIsRegister(!isRegister); setError(''); }}
-              className="text-sm text-primary underline"
+              className="text-sm text-primary underline hover:text-primary-dark"
             >
               {isRegister ? 'Already have an account? Sign in' : "Don't have an account? Register"}
             </button>

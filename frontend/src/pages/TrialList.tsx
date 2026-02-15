@@ -55,9 +55,9 @@ export default function TrialList() {
           {trials.map((trial) => (
             <div
               key={trial.id}
-              className="bg-card rounded-lg p-4 shadow hover:shadow-md transition-shadow border border-gray-100 flex items-start gap-2"
+              className="bg-card rounded-lg p-4 shadow hover:shadow-md transition-all border border-gray-100 flex items-start gap-2 hover:border-primary-light"
             >
-              <Link to={`/trials/${trial.id}`} className="flex-1 min-w-0">
+              <Link to={`/trials/${trial.id}`} className="flex-1 min-w-0 cursor-pointer">
                 <div className="font-semibold text-primary">{trial.name}</div>
                 <div className="text-sm text-neutral mt-1">
                   {trial.location} &middot; {trial.plot_count} plots
@@ -70,7 +70,7 @@ export default function TrialList() {
               </Link>
               <button
                 onClick={() => setDeletingId(trial.id)}
-                className="flex-shrink-0 p-2 text-gray-400 hover:text-error rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
+                className="flex-shrink-0 p-2 text-gray-400 hover:text-error rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center cursor-pointer hover:bg-red-50 transition-colors"
                 aria-label={`Delete ${trial.name}`}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -84,7 +84,7 @@ export default function TrialList() {
 
       <Link
         to="/trials/new"
-        className="mt-6 w-full py-3 bg-primary text-white rounded-lg font-semibold text-lg min-h-[48px] flex items-center justify-center"
+        className="mt-6 w-full py-3 bg-primary text-white rounded-lg font-semibold text-lg min-h-[48px] flex items-center justify-center cursor-pointer hover:bg-primary-dark transition-colors"
       >
         + New Trial
       </Link>

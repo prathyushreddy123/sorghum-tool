@@ -1,4 +1,7 @@
+import { useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+
+const LAST_TRIAL_KEY = 'sorghum_last_trial_id';
 
 const TABS = [
   {
@@ -42,6 +45,13 @@ export default function BottomTabBar() {
   const trialMatch = location.pathname.match(/\/trials\/(\d+)/);
   const currentTrialId = trialMatch ? trialMatch[1] : null;
 
+  // Save last viewed trial ID to localStorage
+  useEffect(() => {
+    if (currentTrialId) {
+      localStorage.setItem(LAST_TRIAL_KEY, currentTrialId);
+    }
+  }, [currentTrialId]);
+
   function isActive(key: string): boolean {
     switch (key) {
       case 'trials':
@@ -61,9 +71,11 @@ export default function BottomTabBar() {
         navigate('/');
         break;
       case 'dashboard':
-        if (currentTrialId) {
-          navigate(`/trials/${currentTrialId}`);
+        const trialId = currentTrialId || localStorage.getItem(LAST_TRIAL_KEY);
+        if (trialId) {
+          navigate(`/trials/${trialId}`);
         } else {
+          // No trial context, navigate to trials list
           navigate('/');
         }
         break;
@@ -82,7 +94,7 @@ export default function BottomTabBar() {
             <button
               key={key}
               onClick={() => handleTap(key)}
-              className={`flex-1 flex flex-col items-center justify-center py-2 min-h-[56px] transition-colors ${
+              className={`flex-1 flex flex-col items-center justify-center py-2 min-h-[56px] transition-colors cursor-pointer hover:bg-gray-50 ${
                 active ? 'text-primary' : 'text-gray-400'
               }`}
             >

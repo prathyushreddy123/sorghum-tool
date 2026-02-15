@@ -135,17 +135,17 @@ export default function TrialDashboard() {
         {stats.total_plots > 0 && (
           <Link
             to={`/trials/${trial.id}/collect`}
-            className="block w-full py-3 bg-primary text-white text-center rounded-lg font-semibold text-lg min-h-[48px]"
+            className="block w-full py-3 bg-primary text-white text-center rounded-lg font-semibold text-lg min-h-[48px] cursor-pointer hover:bg-primary-dark transition-colors"
           >
             Record Observations
           </Link>
         )}
         <Link
           to={`/trials/${trial.id}/plots`}
-          className={`block w-full py-3 text-center rounded-lg font-semibold text-lg min-h-[48px] ${
+          className={`block w-full py-3 text-center rounded-lg font-semibold text-lg min-h-[48px] cursor-pointer transition-colors ${
             stats.total_plots === 0
-              ? 'bg-primary text-white'
-              : 'bg-card text-primary border-2 border-primary'
+              ? 'bg-primary text-white hover:bg-primary-dark'
+              : 'bg-card text-primary border-2 border-primary hover:bg-primary-light'
           }`}
         >
           {stats.total_plots === 0 ? 'Import Plots' : 'View Plots'}
@@ -153,7 +153,7 @@ export default function TrialDashboard() {
         {stats.scored_plots > 0 && (
           <Link
             to={`/trials/${trial.id}/heatmap`}
-            className="block w-full py-3 bg-card text-primary text-center rounded-lg font-semibold text-lg min-h-[48px] border-2 border-primary"
+            className="block w-full py-3 bg-card text-primary text-center rounded-lg font-semibold text-lg min-h-[48px] border-2 border-primary cursor-pointer hover:bg-primary-light transition-colors"
           >
             Severity Heatmap
           </Link>
@@ -163,7 +163,7 @@ export default function TrialDashboard() {
         )}
         <button
           onClick={() => setShowDelete(true)}
-          className="w-full py-3 text-error text-center rounded-lg font-medium text-sm min-h-[44px] border border-gray-200"
+          className="w-full py-3 text-error text-center rounded-lg font-medium text-sm min-h-[44px] border border-gray-200 cursor-pointer hover:bg-red-50 transition-colors"
         >
           Delete Trial
         </button>
@@ -215,7 +215,7 @@ function ExportButton({ trialId, trialName }: { trialId: number; trialName: stri
     <button
       onClick={handleExport}
       disabled={exporting}
-      className="w-full py-3 bg-card text-neutral text-center rounded-lg font-semibold text-lg min-h-[48px] border border-gray-300 disabled:opacity-50"
+      className="w-full py-3 bg-card text-neutral text-center rounded-lg font-semibold text-lg min-h-[48px] border border-gray-300 disabled:opacity-50 cursor-pointer hover:bg-gray-50 disabled:cursor-not-allowed transition-colors"
     >
       {exporting ? 'Exporting...' : 'Export CSV'}
     </button>

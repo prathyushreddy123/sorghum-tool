@@ -22,7 +22,7 @@ except Exception as e:
     logger.warning(f"Alembic migration failed ({e}), falling back to create_all()")
     Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="SorghumField API", version="0.1.0")
+app = FastAPI(title="FieldScout API", version="0.1.0")
 
 cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",")]
 
@@ -46,4 +46,4 @@ app.include_router(images.router)
 
 @app.get("/")
 def root():
-    return {"message": "SorghumField API", "docs": "/docs"}
+    return {"message": "FieldScout API", "docs": "/docs"}

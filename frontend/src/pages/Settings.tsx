@@ -65,7 +65,7 @@ export default function Settings() {
           <div className="text-xs text-gray-400 mb-3">{user.email}</div>
           <button
             onClick={logout}
-            className="w-full py-3 text-error text-center rounded-lg font-medium text-sm min-h-[44px] border border-gray-200"
+            className="w-full py-3 text-error text-center rounded-lg font-medium text-sm min-h-[44px] border border-gray-200 hover:bg-red-50 transition-colors"
           >
             Sign Out
           </button>
@@ -91,7 +91,7 @@ export default function Settings() {
           <button
             onClick={handleCreate}
             disabled={!label.trim()}
-            className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium min-h-[44px] disabled:opacity-50"
+            className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium min-h-[44px] disabled:opacity-50 hover:bg-primary-dark transition-colors"
           >
             Generate
           </button>
@@ -109,7 +109,7 @@ export default function Settings() {
               </code>
               <button
                 onClick={handleCopy}
-                className="px-3 py-1 bg-primary text-white rounded text-xs font-medium min-h-[36px]"
+                className="px-3 py-1 bg-primary text-white rounded text-xs font-medium min-h-[36px] hover:bg-primary-dark transition-colors"
               >
                 {copied ? 'Copied!' : 'Copy'}
               </button>
@@ -140,7 +140,7 @@ export default function Settings() {
                 </div>
                 <button
                   onClick={() => handleRevoke(k.id)}
-                  className="px-3 py-1 text-error text-sm font-medium min-h-[36px]"
+                  className="px-3 py-1 text-error text-sm font-medium min-h-[36px] hover:bg-red-50 transition-colors rounded"
                 >
                   Revoke
                 </button>

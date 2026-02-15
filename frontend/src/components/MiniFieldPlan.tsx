@@ -69,7 +69,7 @@ export default function MiniFieldPlan({ trialId, rows, columns, cells }: Props) 
                       <td key={ci} className="p-0.5">
                         <button
                           onClick={() => handleCellClick(cell)}
-                          className="w-4 h-4 rounded-full border border-gray-300"
+                          className="w-4 h-4 rounded-full border border-gray-300 hover:scale-125 transition-transform"
                           style={{ backgroundColor: bg }}
                           title={cell?.plot_id || ''}
                         />
@@ -81,7 +81,7 @@ export default function MiniFieldPlan({ trialId, rows, columns, cells }: Props) 
                     <td key={ci} className="p-0.5">
                       <button
                         onClick={() => handleCellClick(cell)}
-                        className={`rounded text-center font-medium border border-gray-200 transition-colors ${
+                        className={`rounded text-center font-medium border border-gray-200 transition-all hover:scale-105 hover:shadow-md ${
                           mode === 'full'
                             ? 'w-14 h-10 text-[10px]'
                             : 'w-10 h-8 text-[9px]'

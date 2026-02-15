@@ -2,6 +2,7 @@
 
 @theme {
   --color-primary: #2E7D32;
+  --color-primary-dark: #1B5E20;
   --color-primary-light: #81C784;
   --color-warning: #FFC107;
   --color-error: #D32F2F;
@@ -16,4 +17,20 @@ body {
   background-color: var(--color-background);
   color: #213547;
   min-width: 320px;
+}
+
+/* Global cursor styles for interactive elements */
+button,
+a,
+[role="button"],
+input[type="button"],
+input[type="submit"],
+input[type="reset"] {
+  cursor: pointer;
+}
+
+button:disabled,
+a:disabled,
+[disabled] {
+  cursor: not-allowed;
 }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stop all SorghumField services
+# Stop all FieldScout services
 LOG_DIR="/tmp"
 
 for svc in backend frontend tunnel-backend tunnel-frontend; do
@@ -16,4 +16,4 @@ pkill -f "uvicorn main:app" 2>/dev/null || true
 pkill -f cloudflared 2>/dev/null || true
 pkill -f "vite --host" 2>/dev/null || true
 
-echo "All SorghumField services stopped."
+echo "All FieldScout services stopped."

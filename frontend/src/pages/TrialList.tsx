@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import * as offlineApi from '../db/offlineApi';
 import type { Trial } from '../types';
 import { useAuth } from '../contexts/AuthContext';
+import { useTeam } from '../contexts/TeamContext';
 import ConfirmDialog from '../components/ConfirmDialog';
 
 const CROP_ICON: Record<string, string> = {
@@ -52,6 +53,7 @@ function relativeTime(iso: string): string {
 
 export default function TrialList() {
   const { user } = useAuth();
+  const { activeTeam } = useTeam();
   const navigate = useNavigate();
   const [trials, setTrials] = useState<Trial[]>([]);
   const [loading, setLoading] = useState(true);
@@ -60,11 +62,12 @@ export default function TrialList() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
-    offlineApi.getTrials()
+    setLoading(true);
+    offlineApi.getTrials(activeTeam?.id)
       .then(setTrials)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [activeTeam]);
 
   async function handleDelete() {
     if (deletingId === null) return;
@@ -193,7 +196,9 @@ export default function TrialList() {
         {/* ── Section header ───────────────────────────────────────── */}
         {trials.length > 0 && (
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Your Trials</h2>
+            <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
+              {activeTeam ? `${activeTeam.name} Trials` : 'Your Trials'}
+            </h2>
             <span className="text-xs text-gray-400">{trials.length} total</span>
           </div>
         )}
@@ -300,6 +305,12 @@ export default function TrialList() {
                           <span className="truncate">{trial.location}</span>
                           <span className="text-gray-200">&middot;</span>
                           <span className="capitalize text-gray-500">{trial.crop}</span>
+                          {trial.team_name && !activeTeam && (
+                            <>
+                              <span className="text-gray-200">&middot;</span>
+                              <span className="text-primary font-medium">{trial.team_name}</span>
+                            </>
+                          )}
                           <span className="text-gray-200">&middot;</span>
                           <span>{relativeTime(trial.created_at)}</span>
                         </div>

@@ -18,6 +18,34 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     trials: Mapped[list["Trial"]] = relationship(back_populates="owner")
+    team_memberships: Mapped[list["TeamMember"]] = relationship(back_populates="user")
+
+
+class Team(Base):
+    __tablename__ = "teams"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    invite_code: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    created_by: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    creator: Mapped["User"] = relationship()
+    members: Mapped[list["TeamMember"]] = relationship(back_populates="team", cascade="all, delete-orphan")
+    trials: Mapped[list["Trial"]] = relationship(back_populates="team")
+
+
+class TeamMember(Base):
+    __tablename__ = "team_members"
+    __table_args__ = (UniqueConstraint("team_id", "user_id", name="uq_team_member"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    team_id: Mapped[int] = mapped_column(Integer, ForeignKey("teams.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    joined_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    team: Mapped["Team"] = relationship(back_populates="members")
+    user: Mapped["User"] = relationship(back_populates="team_memberships")
 
 
 class Trait(Base):
@@ -54,8 +82,10 @@ class Trial(Base):
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    team_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("teams.id"), nullable=True, index=True)
 
     owner: Mapped["User | None"] = relationship(back_populates="trials")
+    team: Mapped["Team | None"] = relationship(back_populates="trials")
     plots: Mapped[list["Plot"]] = relationship(back_populates="trial", cascade="all, delete-orphan")
     trial_traits: Mapped[list["TrialTrait"]] = relationship(
         back_populates="trial", cascade="all, delete-orphan", order_by="TrialTrait.display_order"

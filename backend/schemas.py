@@ -32,6 +32,38 @@ class TokenResponse(BaseModel):
     user: UserResponse
 
 
+# --- Team ---
+
+class TeamCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+
+
+class TeamMemberResponse(BaseModel):
+    id: int
+    user_id: int
+    user_name: str
+    user_email: str
+    joined_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TeamResponse(BaseModel):
+    id: int
+    name: str
+    invite_code: str
+    created_by: int
+    created_at: datetime
+    member_count: int = 0
+    members: list[TeamMemberResponse] = []
+
+    model_config = {"from_attributes": True}
+
+
+class TeamJoin(BaseModel):
+    invite_code: str = Field(..., min_length=1)
+
+
 # --- Trait ---
 
 class TraitCreate(BaseModel):
@@ -130,6 +162,7 @@ class TrialCreate(BaseModel):
     walk_mode: str = "row_by_row"
     trait_ids: list[int] = []              # traits to attach at creation
     first_round_name: str = "Round 1"     # name for the auto-created first scoring round
+    team_id: int | None = None             # optional team association
 
 
 class TrialResponse(BaseModel):
@@ -143,6 +176,8 @@ class TrialResponse(BaseModel):
     created_at: datetime
     plot_count: int = 0
     scored_count: int = 0
+    team_id: int | None = None
+    team_name: str | None = None
 
     model_config = {"from_attributes": True}
 

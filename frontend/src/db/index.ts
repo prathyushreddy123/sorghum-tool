@@ -13,6 +13,8 @@ export interface CachedTrial {
   created_at: string;
   plot_count: number;
   scored_count: number;
+  team_id: number | null;
+  team_name: string | null;
   _cachedAt: number;
 }
 
@@ -112,6 +114,15 @@ class FieldScoutDB extends Dexie {
     super('fieldscout');
     this.version(1).stores({
       trials: 'id, _cachedAt',
+      plots: 'id, trial_id, _cachedAt',
+      traits: 'id, _cachedAt',
+      trialTraits: 'id, trial_id, trait_id, _cachedAt',
+      scoringRounds: 'id, trial_id, _cachedAt',
+      observations: 'id, plot_id, [plot_id+scoring_round_id], _cachedAt',
+      pendingSync: '++id, createdAt',
+    });
+    this.version(2).stores({
+      trials: 'id, team_id, _cachedAt',
       plots: 'id, trial_id, _cachedAt',
       traits: 'id, _cachedAt',
       trialTraits: 'id, trial_id, trait_id, _cachedAt',

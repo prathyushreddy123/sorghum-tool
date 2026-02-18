@@ -12,6 +12,30 @@ export interface AuthResponse {
   user: User;
 }
 
+// ─── Teams ───────────────────────────────────────────────────────────────────
+
+export interface TeamMember {
+  id: number;
+  user_id: number;
+  user_name: string;
+  user_email: string;
+  joined_at: string;
+}
+
+export interface Team {
+  id: number;
+  name: string;
+  invite_code: string;
+  created_by: number;
+  created_at: string;
+  member_count: number;
+  members: TeamMember[];
+}
+
+export interface TeamCreate {
+  name: string;
+}
+
 // ─── Traits ──────────────────────────────────────────────────────────────────
 
 export type TraitDataType = 'integer' | 'float' | 'date' | 'categorical' | 'text';
@@ -100,6 +124,8 @@ export interface Trial {
   created_at: string;
   plot_count: number;
   scored_count: number;
+  team_id: number | null;
+  team_name: string | null;
 }
 
 export interface TrialCreate {
@@ -111,6 +137,7 @@ export interface TrialCreate {
   walk_mode?: WalkMode;
   trait_ids?: number[];
   first_round_name?: string;
+  team_id?: number;
 }
 
 export interface TrialCloneRequest {

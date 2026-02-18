@@ -157,7 +157,10 @@ export default function TrialDashboard() {
         <div className="min-w-0">
           <h2 className="text-xl font-bold text-neutral truncate">{trial.name}</h2>
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-sm text-neutral capitalize">{trial.location} · {trial.start_date} · {trial.crop}</p>
+            <p className="text-sm text-neutral capitalize">
+              {trial.location} · {trial.start_date} · {trial.crop}
+              {trial.team_name && <span className="text-primary font-medium"> · {trial.team_name}</span>}
+            </p>
             <button
               onClick={() => setShowWalkPicker(v => !v)}
               className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"

@@ -14,13 +14,127 @@ from sqlalchemy.orm import Session
 from config import settings
 from models import (
     APIKey, Image, Observation, Plot, PlotAttribute, ScoringRound,
-    Trait, Trial, TrialTrait, User,
+    Team, TeamMember, Trait, Trial, TrialTrait, User,
 )
 
 UPLOAD_DIR = settings.UPLOAD_DIR or os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
 
 # Legacy hardcoded traits kept only for backward-compat validation of old observations
 _LEGACY_TRAITS = {"ergot_severity", "flowering_date", "plant_height"}
+
+
+# ─── Teams ────────────────────────────────────────────────────────────────────
+
+def _generate_invite_code() -> str:
+    """Generate a short, readable invite code like 'ABCD-1234'."""
+    import random
+    import string
+    part1 = ''.join(random.choices(string.ascii_uppercase, k=4))
+    part2 = ''.join(random.choices(string.digits, k=4))
+    return f"{part1}-{part2}"
+
+
+def create_team(db: Session, name: str, creator_id: int) -> Team:
+    code = _generate_invite_code()
+    while db.query(Team).filter(Team.invite_code == code).first():
+        code = _generate_invite_code()
+    team = Team(name=name, invite_code=code, created_by=creator_id)
+    db.add(team)
+    db.flush()
+    db.add(TeamMember(team_id=team.id, user_id=creator_id))
+    db.commit()
+    db.refresh(team)
+    return team
+
+
+def get_team(db: Session, team_id: int) -> Team | None:
+    return db.query(Team).filter(Team.id == team_id).first()
+
+
+def get_team_by_invite_code(db: Session, invite_code: str) -> Team | None:
+    return db.query(Team).filter(Team.invite_code == invite_code.strip().upper()).first()
+
+
+def get_user_teams(db: Session, user_id: int) -> list[Team]:
+    return (
+        db.query(Team)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .filter(TeamMember.user_id == user_id)
+        .order_by(Team.name)
+        .all()
+    )
+
+
+def join_team(db: Session, team_id: int, user_id: int) -> TeamMember | None:
+    existing = (
+        db.query(TeamMember)
+        .filter(TeamMember.team_id == team_id, TeamMember.user_id == user_id)
+        .first()
+    )
+    if existing:
+        return existing
+    member = TeamMember(team_id=team_id, user_id=user_id)
+    db.add(member)
+    db.commit()
+    db.refresh(member)
+    return member
+
+
+def leave_team(db: Session, team_id: int, user_id: int) -> bool:
+    member = (
+        db.query(TeamMember)
+        .filter(TeamMember.team_id == team_id, TeamMember.user_id == user_id)
+        .first()
+    )
+    if not member:
+        return False
+    db.delete(member)
+    db.commit()
+    return True
+
+
+def remove_team_member(db: Session, team_id: int, user_id: int) -> bool:
+    return leave_team(db, team_id, user_id)
+
+
+def get_team_members(db: Session, team_id: int) -> list[TeamMember]:
+    return (
+        db.query(TeamMember)
+        .filter(TeamMember.team_id == team_id)
+        .order_by(TeamMember.joined_at)
+        .all()
+    )
+
+
+def is_team_member(db: Session, team_id: int, user_id: int) -> bool:
+    return (
+        db.query(TeamMember)
+        .filter(TeamMember.team_id == team_id, TeamMember.user_id == user_id)
+        .first()
+    ) is not None
+
+
+def delete_team(db: Session, team_id: int) -> bool:
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        return False
+    db.query(Trial).filter(Trial.team_id == team_id).update({"team_id": None})
+    db.delete(team)
+    db.commit()
+    return True
+
+
+def regenerate_invite_code(db: Session, team_id: int) -> Team | None:
+    team = get_team(db, team_id)
+    if not team:
+        return None
+    code = _generate_invite_code()
+    while db.query(Team).filter(Team.invite_code == code).first():
+        code = _generate_invite_code()
+    team.invite_code = code
+    db.commit()
+    db.refresh(team)
+    return team
 
 
 # ─── Traits ───────────────────────────────────────────────────────────────────
@@ -237,9 +351,11 @@ def get_round_completion(db: Session, round_id: int, trial_id: int) -> tuple[int
 
 # ─── Trials ───────────────────────────────────────────────────────────────────
 
-def get_trials(db: Session, user_id: int | None = None) -> list[Trial]:
+def get_trials(db: Session, user_id: int | None = None, team_id: int | None = None) -> list[Trial]:
     query = db.query(Trial)
-    if user_id is not None:
+    if team_id is not None:
+        query = query.filter(Trial.team_id == team_id)
+    elif user_id is not None:
         query = query.filter(Trial.user_id == user_id)
     return query.order_by(Trial.created_at.desc()).all()
 
@@ -287,6 +403,7 @@ def clone_trial(db: Session, source_trial_id: int, first_round_name: str = "Roun
         start_date=kwargs.get("start_date", source.start_date),
         end_date=kwargs.get("end_date", source.end_date),
         user_id=source.user_id,
+        team_id=source.team_id,
     )
     db.add(new_trial)
     db.flush()

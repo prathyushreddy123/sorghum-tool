@@ -18,14 +18,19 @@ function isFresh(cachedAt: number): boolean {
 
 // ─── Trials ──────────────────────────────────────────────────────────────────
 
-export async function getTrials(): Promise<Trial[]> {
+export async function getTrials(teamId?: number): Promise<Trial[]> {
   try {
-    const trials = await api.getTrials();
+    const trials = await api.getTrials(teamId);
     const now = Date.now();
     await db.trials.bulkPut(trials.map(t => ({ ...t, _cachedAt: now })));
     return trials;
   } catch {
-    const cached = await db.trials.toArray();
+    let cached;
+    if (teamId) {
+      cached = await db.trials.where('team_id').equals(teamId).toArray();
+    } else {
+      cached = await db.trials.toArray();
+    }
     if (cached.length > 0) return cached as unknown as Trial[];
     throw new Error('Offline — no cached trials');
   }
@@ -284,6 +289,8 @@ export async function createTrial(data: TrialCreate): Promise<Trial> {
     created_at: new Date().toISOString(),
     plot_count: 0,
     scored_count: 0,
+    team_id: data.team_id ?? null,
+    team_name: null,
   };
 
   await db.trials.put({ ...localTrial, _cachedAt: now });

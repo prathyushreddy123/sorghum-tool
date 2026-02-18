@@ -22,6 +22,8 @@ import type {
   HeightPrediction,
   AuthResponse,
   User,
+  Team,
+  TeamCreate,
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000';
@@ -68,8 +70,42 @@ export const api = {
 
   getMe: () => request<User>('/auth/me'),
 
+  // ─── Teams ────────────────────────────────────────────────────────────────
+  getTeams: () => request<Team[]>('/teams'),
+
+  createTeam: (data: TeamCreate) =>
+    request<Team>('/teams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  getTeam: (id: number) => request<Team>(`/teams/${id}`),
+
+  joinTeam: (inviteCode: string) =>
+    request<Team>('/teams/join', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invite_code: inviteCode }),
+    }),
+
+  leaveTeam: (id: number) =>
+    request<{ success: boolean }>(`/teams/${id}/leave`, { method: 'POST' }),
+
+  removeTeamMember: (teamId: number, userId: number) =>
+    request<{ success: boolean }>(`/teams/${teamId}/members/${userId}`, { method: 'DELETE' }),
+
+  deleteTeam: (id: number) =>
+    request<{ success: boolean }>(`/teams/${id}`, { method: 'DELETE' }),
+
+  regenerateInviteCode: (id: number) =>
+    request<Team>(`/teams/${id}/regenerate-code`, { method: 'POST' }),
+
   // ─── Trials ───────────────────────────────────────────────────────────────
-  getTrials: () => request<Trial[]>('/trials'),
+  getTrials: (teamId?: number) => {
+    const query = teamId ? `?team_id=${teamId}` : '';
+    return request<Trial[]>(`/trials${query}`);
+  },
 
   createTrial: (data: TrialCreate) =>
     request<Trial>('/trials', {

@@ -11,20 +11,22 @@ interface TraitInputProps {
 
 export default function TraitInput({ trait, value, previousValue, onChange, disabled }: TraitInputProps) {
   const [listening, setListening] = useState(false);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
 
   const isNumeric = trait.data_type === 'integer' || trait.data_type === 'float';
 
   function startVoiceInput() {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SR) return;
-    const rec: SpeechRecognition = new SR();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rec: any = new SR();
     rec.lang = 'en-US';
     rec.interimResults = false;
     recognitionRef.current = rec;
     setListening(true);
 
-    rec.onresult = (e: SpeechRecognitionEvent) => {
+    rec.onresult = (e: any) => {
       const spoken = e.results[0][0].transcript.trim().toLowerCase();
       // convert words to digits: "one twenty" → "120", "three point five" → "3.5"
       const parsed = parseSpokenNumber(spoken);

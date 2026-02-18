@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback, useRef, TouchEvent } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import type { TouchEvent } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
-import type { Plot, PlotImage, ScoringRound, TrialTrait, Observation } from '../types';
+import type { Plot, PlotImage, ScoringRound, TrialTrait } from '../types';
 import { parseTrait } from '../types';
 import TraitInput from '../components/TraitInput';
 import ImageCapture from '../components/ImageCapture';

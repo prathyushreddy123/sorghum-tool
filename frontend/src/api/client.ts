@@ -32,6 +32,9 @@ function getToken(): string | null {
   return localStorage.getItem('auth_token');
 }
 
+// Threshold (ms) above which API calls are flagged as slow in the console
+const SLOW_API_THRESHOLD_MS = 500;
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -40,7 +43,17 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
+
+  const t0 = performance.now();
   const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
+  const duration = performance.now() - t0;
+
+  if (duration > SLOW_API_THRESHOLD_MS) {
+    console.warn(
+      `[SLOW API] ${options?.method ?? 'GET'} ${url} — ${duration.toFixed(0)}ms`,
+    );
+  }
+
   if (res.status === 401) {
     localStorage.removeItem('auth_token');
     window.dispatchEvent(new Event('auth:logout'));

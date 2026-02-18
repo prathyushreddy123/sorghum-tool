@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { HeatmapCell } from '../types';
 
@@ -31,7 +31,7 @@ interface Props {
   cells: HeatmapCell[];
 }
 
-export default function MiniFieldPlan({ trialId, rows, columns, cells }: Props) {
+function MiniFieldPlan({ trialId, rows, columns, cells }: Props) {
   const navigate = useNavigate();
   const [popup, setPopup] = useState<HeatmapCell | null>(null);
 
@@ -145,3 +145,5 @@ export default function MiniFieldPlan({ trialId, rows, columns, cells }: Props) 
     </div>
   );
 }
+
+export default memo(MiniFieldPlan);

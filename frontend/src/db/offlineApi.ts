@@ -18,22 +18,32 @@ function isFresh(cachedAt: number): boolean {
 
 // ─── Trials ──────────────────────────────────────────────────────────────────
 
+async function _fetchAndCacheTrials(teamId?: number): Promise<Trial[]> {
+  const trials = await api.getTrials(teamId);
+  await db.trials.bulkPut(trials.map(t => ({ ...t, _cachedAt: Date.now() })));
+  return trials;
+}
+
 export async function getTrials(teamId?: number): Promise<Trial[]> {
-  try {
-    const trials = await api.getTrials(teamId);
-    const now = Date.now();
-    await db.trials.bulkPut(trials.map(t => ({ ...t, _cachedAt: now })));
-    return trials;
-  } catch {
-    let cached;
-    if (teamId) {
-      cached = await db.trials.where('team_id').equals(teamId).toArray();
-    } else {
-      cached = await db.trials.toArray();
-    }
+  // Read any cached trials first (fast, synchronous IndexedDB read)
+  const cached = teamId
+    ? await db.trials.where('team_id').equals(teamId).toArray()
+    : await db.trials.toArray();
+
+  if (!navigator.onLine) {
     if (cached.length > 0) return cached as unknown as Trial[];
     throw new Error('Offline — no cached trials');
   }
+
+  // Stale-while-revalidate: if we have any cached data, return it instantly
+  // and refresh from the API in the background so the UI is never blocked.
+  if (cached.length > 0) {
+    _fetchAndCacheTrials(teamId).catch(() => {});   // background refresh
+    return cached as unknown as Trial[];
+  }
+
+  // No cache at all — must wait for the API (first-ever load)
+  return _fetchAndCacheTrials(teamId);
 }
 
 export async function getTrial(id: number): Promise<Trial> {

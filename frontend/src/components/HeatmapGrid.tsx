@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import type { HeatmapData, HeatmapCell, Trait } from '../types';
 
 // For numeric traits: green → yellow → red gradient
@@ -60,7 +61,7 @@ interface Props {
   onCellClick?: (plotPk: number) => void;
 }
 
-export default function HeatmapGrid({ data, onCellClick }: Props) {
+function HeatmapGrid({ data, onCellClick }: Props) {
   const grid = new Map<string, HeatmapCell>();
   for (const cell of data.cells) {
     grid.set(`${cell.row}-${cell.column}`, cell);
@@ -188,3 +189,5 @@ export default function HeatmapGrid({ data, onCellClick }: Props) {
     </div>
   );
 }
+
+export default memo(HeatmapGrid);

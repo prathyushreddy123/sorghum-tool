@@ -1,9 +1,12 @@
 import logging
+import os
+import time
 
 from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import event
 
 from config import settings
 from database import Base, engine, get_db
@@ -12,6 +15,32 @@ from middleware import APIKeyMiddleware
 from routers import auth, images, observations, plots, rounds, stats, teams, traits, trials
 
 logger = logging.getLogger(__name__)
+
+# ─── Slow-query monitor (enable with DEBUG_QUERIES=1) ─────────────────────────
+# Logs any SQL query that takes longer than SLOW_QUERY_MS milliseconds.
+# Safe to leave configured — does nothing unless the env var is set.
+_SLOW_QUERY_MS = int(os.getenv("SLOW_QUERY_MS", "100"))
+
+if os.getenv("DEBUG_QUERIES"):
+    logging.basicConfig(level=logging.DEBUG)
+
+    @event.listens_for(engine.sync_engine if hasattr(engine, "sync_engine") else engine, "before_cursor_execute")
+    def _before_query(conn, cursor, statement, parameters, context, executemany):
+        conn.info.setdefault("_qstart", []).append(time.perf_counter())
+
+    @event.listens_for(engine.sync_engine if hasattr(engine, "sync_engine") else engine, "after_cursor_execute")
+    def _after_query(conn, cursor, statement, parameters, context, executemany):
+        starts = conn.info.get("_qstart")
+        if not starts:
+            return
+        elapsed_ms = (time.perf_counter() - starts.pop()) * 1000
+        if elapsed_ms >= _SLOW_QUERY_MS:
+            logger.warning(
+                "[SLOW QUERY] %.1fms — %s",
+                elapsed_ms,
+                statement[:300].replace("\n", " "),
+            )
+# ──────────────────────────────────────────────────────────────────────────────
 
 # Run Alembic migrations on startup (creates tables if fresh DB)
 try:

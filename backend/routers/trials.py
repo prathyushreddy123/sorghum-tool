@@ -32,7 +32,17 @@ def list_trials(
         user_id=current_user.id if current_user and team_id is None else None,
         team_id=team_id,
     )
-    return [_enrich_trial_response(db, t) for t in trials]
+    # Batch-fetch plot/scored counts for all trials in 2 queries (was 2 per trial)
+    counts = crud.get_trial_plot_counts_bulk(db, [t.id for t in trials])
+    results = []
+    for t in trials:
+        resp = TrialResponse.model_validate(t)
+        resp.plot_count, resp.scored_count = counts.get(t.id, (0, 0))
+        resp.team_id = t.team_id
+        if t.team:
+            resp.team_name = t.team.name
+        results.append(resp)
+    return results
 
 
 @router.post("", response_model=TrialResponse, status_code=201)

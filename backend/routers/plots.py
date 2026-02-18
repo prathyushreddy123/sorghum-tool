@@ -34,10 +34,13 @@ def list_plots(
         db, trial_id, search=search, scored=scored,
         round_id=round_id, status=status, walk_mode=effective_walk,
     )
+    # Single batch query instead of one query per plot (N+1 fix)
+    plot_ids = [p.id for p in plots]
+    observed_set = crud.get_plots_observed_set(db, plot_ids, round_id=round_id)
     results = []
     for p in plots:
         resp = PlotResponse.model_validate(p)
-        resp.has_observations = crud.plot_has_observations(db, p.id, round_id=round_id)
+        resp.has_observations = p.id in observed_set
         results.append(resp)
     return results
 

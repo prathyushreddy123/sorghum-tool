@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -128,7 +128,7 @@ class Plot(Base):
     __tablename__ = "plots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    trial_id: Mapped[int] = mapped_column(Integer, ForeignKey("trials.id"), nullable=False)
+    trial_id: Mapped[int] = mapped_column(Integer, ForeignKey("trials.id"), nullable=False, index=True)
     plot_id: Mapped[str] = mapped_column(String, nullable=False)
     genotype: Mapped[str] = mapped_column(String, nullable=False)
     rep: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -164,9 +164,12 @@ class PlotAttribute(Base):
 
 class Observation(Base):
     __tablename__ = "observations"
+    __table_args__ = (
+        Index('ix_observations_plot_id_round', 'plot_id', 'scoring_round_id'),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    plot_id: Mapped[int] = mapped_column(Integer, ForeignKey("plots.id"), nullable=False)
+    plot_id: Mapped[int] = mapped_column(Integer, ForeignKey("plots.id"), nullable=False, index=True)
     trait_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("traits.id"), nullable=True, index=True)
     scoring_round_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("scoring_rounds.id"), nullable=True, index=True

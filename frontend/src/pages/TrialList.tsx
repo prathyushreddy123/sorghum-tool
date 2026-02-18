@@ -64,9 +64,19 @@ export default function TrialList() {
   useEffect(() => {
     setLoading(true);
     offlineApi.getTrials(activeTeam?.id)
-      .then(setTrials)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .then((data) => {
+        setTrials(data);
+        setLoading(false);
+        // After showing cached data instantly, wait for the background refresh
+        // and update the list if the API returns newer counts/data.
+        offlineApi.getTrials(activeTeam?.id)
+          .then(setTrials)
+          .catch(() => {});
+      })
+      .catch((e) => {
+        setError(e.message);
+        setLoading(false);
+      });
   }, [activeTeam]);
 
   async function handleDelete() {

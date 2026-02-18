@@ -8,7 +8,7 @@ import secrets
 from collections import Counter
 from datetime import datetime
 
-from sqlalchemy import func
+from sqlalchemy import Float as SAFloat, cast, func
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -449,6 +449,41 @@ def get_trial_plot_counts(db: Session, trial_id: int) -> tuple[int, int]:
     return total, scored
 
 
+def get_trial_plot_counts_bulk(
+    db: Session, trial_ids: list[int]
+) -> dict[int, tuple[int, int]]:
+    """Returns {trial_id: (total_plots, scored_plots)} in exactly 2 queries
+    regardless of how many trials are passed, replacing the N+1 pattern in
+    list_trials where _enrich_trial_response was called per trial.
+    """
+    if not trial_ids:
+        return {}
+
+    # Query 1: total plots grouped by trial
+    total_rows = (
+        db.query(Plot.trial_id, func.count(Plot.id).label("total"))
+        .filter(Plot.trial_id.in_(trial_ids))
+        .group_by(Plot.trial_id)
+        .all()
+    )
+    totals = {row.trial_id: row.total for row in total_rows}
+
+    # Query 2: distinct scored plots grouped by trial
+    scored_rows = (
+        db.query(Plot.trial_id, func.count(func.distinct(Observation.plot_id)).label("scored"))
+        .join(Plot, Observation.plot_id == Plot.id)
+        .filter(Plot.trial_id.in_(trial_ids))
+        .group_by(Plot.trial_id)
+        .all()
+    )
+    scored = {row.trial_id: row.scored for row in scored_rows}
+
+    return {
+        trial_id: (totals.get(trial_id, 0), scored.get(trial_id, 0))
+        for trial_id in trial_ids
+    }
+
+
 # ─── Walk-mode sorting ─────────────────────────────────────────────────────────
 
 def sort_plots_by_walk_mode(plots: list[Plot], walk_mode: str) -> list[Plot]:
@@ -588,6 +623,26 @@ def plot_has_observations(db: Session, plot_id: int, round_id: int | None = None
     if round_id is not None:
         query = query.filter(Observation.scoring_round_id == round_id)
     return query.first() is not None
+
+
+def get_plots_observed_set(
+    db: Session, plot_ids: list[int], round_id: int | None = None
+) -> set[int]:
+    """Return the set of plot IDs (from the given list) that have at least one observation.
+
+    Runs a single query regardless of how many plots are passed, replacing the
+    previous N+1 pattern (one query per plot) in list_plots.
+    """
+    if not plot_ids:
+        return set()
+    query = (
+        db.query(Observation.plot_id)
+        .filter(Observation.plot_id.in_(plot_ids))
+        .distinct()
+    )
+    if round_id is not None:
+        query = query.filter(Observation.scoring_round_id == round_id)
+    return {row[0] for row in query.all()}
 
 
 def get_next_unscored_plot(
@@ -867,14 +922,21 @@ def get_trial_stats(db: Session, trial_id: int, round_id: int | None = None) -> 
 
     for tt in trial_traits:
         trait = tt.trait
-        obs_query = (
-            db.query(Observation.value)
-            .join(Plot, Observation.plot_id == Plot.id)
-            .filter(Plot.trial_id == trial_id, Observation.trait_id == trait.id)
-        )
+
+        # Shared filter conditions for this trait's observations
+        base_filter = [
+            Plot.trial_id == trial_id,
+            Observation.trait_id == trait.id,
+        ]
         if round_id is not None:
-            obs_query = obs_query.filter(Observation.scoring_round_id == round_id)
-        values = [row[0] for row in obs_query.all()]
+            base_filter.append(Observation.scoring_round_id == round_id)
+
+        count = (
+            db.query(func.count(Observation.id))
+            .join(Plot, Observation.plot_id == Plot.id)
+            .filter(*base_filter)
+            .scalar()
+        ) or 0
 
         stat: dict = {
             "trait_id": trait.id,
@@ -882,38 +944,72 @@ def get_trial_stats(db: Session, trial_id: int, round_id: int | None = None) -> 
             "trait_label": trait.label,
             "data_type": trait.data_type,
             "unit": trait.unit,
-            "count": len(values),
+            "count": count,
             "total_plots": total_plots,
         }
 
-        if trait.data_type in ("integer", "float") and values:
-            nums = [float(v) for v in values if _is_numeric(v)]
-            if nums:
-                n = len(nums)
-                mean = sum(nums) / n
-                sd = math.sqrt(sum((v - mean) ** 2 for v in nums) / n) if n > 1 else 0.0
+        if count == 0:
+            trait_stats.append(stat)
+            continue
+
+        if trait.data_type in ("integer", "float"):
+            # Compute all numeric aggregates in SQL — no values pulled into Python.
+            # Stddev uses the algebraic identity: Var(X) = E[X²] − E[X]²
+            val_f = cast(Observation.value, SAFloat)
+            agg = (
+                db.query(
+                    func.avg(val_f).label("mean"),
+                    func.min(val_f).label("min_val"),
+                    func.max(val_f).label("max_val"),
+                    func.avg(val_f * val_f).label("mean_sq"),
+                )
+                .join(Plot, Observation.plot_id == Plot.id)
+                .filter(*base_filter)
+            ).one()
+
+            if agg.mean is not None:
+                mean = float(agg.mean)
+                variance = float(agg.mean_sq) - mean * mean
+                sd = math.sqrt(max(variance, 0.0))  # clamp floating-point rounding errors
                 stat.update({
                     "mean": round(mean, 3),
                     "sd": round(sd, 3),
-                    "min_value": min(nums),
-                    "max_value": max(nums),
+                    "min_value": float(agg.min_val),
+                    "max_value": float(agg.max_val),
                 })
 
-        elif trait.data_type == "categorical" and values:
+        elif trait.data_type == "categorical":
             cats = json.loads(trait.categories) if trait.categories else []
             labels = json.loads(trait.category_labels) if trait.category_labels else []
             label_map = dict(zip(cats, labels)) if labels else {}
-            counts = Counter(values)
+
+            # GROUP BY in SQL replaces Counter() over a full result set in Python
+            counts_rows = (
+                db.query(Observation.value, func.count(Observation.id))
+                .join(Plot, Observation.plot_id == Plot.id)
+                .filter(*base_filter)
+                .group_by(Observation.value)
+                .all()
+            )
+            counts = {val: cnt for val, cnt in counts_rows}
             stat["distribution"] = [
                 {"value": c, "label": label_map.get(c), "count": counts.get(c, 0)}
-                for c in (cats if cats else sorted(set(values)))
+                for c in (cats if cats else sorted(counts.keys()))
             ]
 
-        elif trait.data_type == "date" and values:
-            sorted_dates = sorted(v for v in values if v)
-            if sorted_dates:
-                stat["earliest"] = sorted_dates[0]
-                stat["latest"] = sorted_dates[-1]
+        elif trait.data_type == "date":
+            # MIN/MAX on ISO date strings work correctly with lexicographic comparison
+            dates = (
+                db.query(
+                    func.min(Observation.value).label("earliest"),
+                    func.max(Observation.value).label("latest"),
+                )
+                .join(Plot, Observation.plot_id == Plot.id)
+                .filter(*base_filter)
+            ).one()
+            if dates.earliest:
+                stat["earliest"] = dates.earliest
+                stat["latest"] = dates.latest
 
         trait_stats.append(stat)
 
@@ -1021,6 +1117,31 @@ def export_trial_csv(db: Session, trial_id: int, round_id: int | None = None) ->
     trial_traits = get_trial_traits(db, trial_id)
     trait_names = [tt.trait.name for tt in trial_traits]
 
+    # --- Batch-fetch all observations for this trial in a single query ---
+    plot_ids = [p.id for p in plots]
+    obs_query = (
+        db.query(Observation)
+        .filter(Observation.plot_id.in_(plot_ids))
+    )
+    if round_id is not None:
+        obs_query = obs_query.filter(Observation.scoring_round_id == round_id)
+
+    # Group into {plot_id: {trait_name: Observation}} and {plot_id: latest_obs}
+    obs_by_plot: dict[int, dict[str, Observation]] = {}
+    latest_by_plot: dict[int, Observation] = {}
+    for obs in obs_query.all():
+        obs_by_plot.setdefault(obs.plot_id, {})[obs.trait_name] = obs
+        cur_latest = latest_by_plot.get(obs.plot_id)
+        if cur_latest is None or obs.recorded_at > cur_latest.recorded_at:
+            latest_by_plot[obs.plot_id] = obs
+
+    # Fetch scoring round name once (not once per plot)
+    round_name = ""
+    if round_id is not None:
+        round_obj = get_scoring_round(db, round_id)
+        round_name = round_obj.name if round_obj else ""
+    # --- end batch fetch ---
+
     output = io.StringIO()
     writer = csv.writer(output)
 
@@ -1032,24 +1153,14 @@ def export_trial_csv(db: Session, trial_id: int, round_id: int | None = None) ->
     writer.writerow(header)
 
     for plot in plots:
-        # fetch observations for this plot (optionally filtered by round)
-        obs_query = db.query(Observation).filter(Observation.plot_id == plot.id)
-        if round_id is not None:
-            obs_query = obs_query.filter(Observation.scoring_round_id == round_id)
-        observations = obs_query.all()
-
-        obs_by_trait: dict[str, Observation] = {}
-        for obs in observations:
-            obs_by_trait[obs.trait_name] = obs
-
-        latest_obs = max(observations, key=lambda o: o.recorded_at) if observations else None
+        obs_by_trait = obs_by_plot.get(plot.id, {})
+        latest_obs = latest_by_plot.get(plot.id)
 
         row_data = [
             plot.plot_id, plot.genotype, plot.rep, plot.row, plot.column, plot.plot_status,
         ]
         if round_id is not None:
-            round_obj = get_scoring_round(db, round_id)
-            row_data.append(round_obj.name if round_obj else "")
+            row_data.append(round_name)
 
         for tname in trait_names:
             row_data.append(obs_by_trait[tname].value if tname in obs_by_trait else "")

@@ -47,13 +47,17 @@ if [ -z "$BACKEND_URL" ]; then
 fi
 echo "  Backend tunnel: $BACKEND_URL"
 
-# 5. Frontend (Vite)
+# 5. Frontend — production build + preview server
+# vite build bundles all lazy chunks into single files so Cloudflare tunnel
+# requests are fast (1 file per route instead of 10+ module files per route).
 cd "$DIR/frontend"
-nohup env VITE_API_BASE="$BACKEND_URL" npx vite --host \
+echo "  Building frontend (this takes ~15s)..."
+VITE_API_BASE="$BACKEND_URL" npx vite build >> "$LOG_DIR/sorghum-frontend.log" 2>&1
+nohup npx vite preview --host --port 5173 \
   > "$LOG_DIR/sorghum-frontend.log" 2>&1 &
 echo $! > "$LOG_DIR/sorghum-frontend.pid"
-sleep 3
-echo "  Frontend started on :5173 (PID $(cat "$LOG_DIR/sorghum-frontend.pid"))"
+sleep 2
+echo "  Frontend preview started on :5173 (PID $(cat "$LOG_DIR/sorghum-frontend.pid"))"
 
 # 6. Cloudflare tunnel for frontend
 nohup ~/.local/bin/cloudflared tunnel --url http://localhost:5173 \

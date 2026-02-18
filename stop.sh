@@ -15,5 +15,13 @@ done
 pkill -f "uvicorn main:app" 2>/dev/null || true
 pkill -f cloudflared 2>/dev/null || true
 pkill -f "vite --host" 2>/dev/null || true
+pkill -f "vite preview" 2>/dev/null || true
+
+# Wait until port 8000 is actually free before returning, so start.sh
+# never hits "Address already in use" on a fast restart.
+for i in {1..10}; do
+  lsof -ti :8000 > /dev/null 2>&1 || break
+  sleep 0.5
+done
 
 echo "All FieldScout services stopped."

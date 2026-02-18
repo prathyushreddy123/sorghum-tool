@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import {
   BarChart,
   Bar,
@@ -17,7 +18,7 @@ interface Props {
   title?: string;
 }
 
-export default function SeverityHistogram({ data, title }: Props) {
+function SeverityHistogram({ data, title }: Props) {
   const chartData = data.map((d) => ({
     ...d,
     displayLabel: d.label || d.value,
@@ -44,3 +45,5 @@ export default function SeverityHistogram({ data, title }: Props) {
     </>
   );
 }
+
+export default memo(SeverityHistogram);

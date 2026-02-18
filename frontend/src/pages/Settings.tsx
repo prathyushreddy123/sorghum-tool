@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
-import type { APIKey } from '../types';
+import type { APIKey, Trait } from '../types';
+import TraitBuilderModal from '../components/TraitBuilderModal';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 export default function Settings() {
   const { user, logout } = useAuth();
@@ -11,6 +13,35 @@ export default function Settings() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
+
+  // Trait management
+  const [traits, setTraits] = useState<Trait[]>([]);
+  const [traitsLoading, setTraitsLoading] = useState(true);
+  const [showTraitBuilder, setShowTraitBuilder] = useState(false);
+  const [editingTrait, setEditingTrait] = useState<Trait | null>(null);
+  const [deletingTrait, setDeletingTrait] = useState<Trait | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
+  useEffect(() => {
+    api.getTraits()
+      .then(setTraits)
+      .catch(() => {})
+      .finally(() => setTraitsLoading(false));
+  }, []);
+
+  async function handleDeleteTrait() {
+    if (!deletingTrait) return;
+    setDeleteLoading(true);
+    try {
+      await api.deleteTrait(deletingTrait.id);
+      setTraits(prev => prev.filter(t => t.id !== deletingTrait.id));
+      setDeletingTrait(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete trait');
+    } finally {
+      setDeleteLoading(false);
+    }
+  }
 
   useEffect(() => {
     api.getAPIKeys()
@@ -71,6 +102,64 @@ export default function Settings() {
           </button>
         </div>
       )}
+
+      {/* Trait Manager */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-semibold text-neutral">Custom Traits</h3>
+          <button
+            onClick={() => { setEditingTrait(null); setShowTraitBuilder(true); }}
+            className="px-3 py-1.5 bg-primary text-white rounded-lg text-sm font-medium min-h-[36px] hover:bg-primary-dark transition-colors"
+          >
+            + New Trait
+          </button>
+        </div>
+        <p className="text-sm text-gray-500 mb-3">
+          Create and manage custom traits for your trials.
+        </p>
+
+        {traitsLoading ? (
+          <p className="text-gray-400 text-sm">Loading...</p>
+        ) : (
+          <>
+            {traits.filter(t => !t.is_system).length === 0 ? (
+              <p className="text-gray-400 text-sm">No custom traits yet. System traits are available by default.</p>
+            ) : (
+              <div className="space-y-2">
+                {traits.filter(t => !t.is_system).map(trait => (
+                  <div key={trait.id} className="flex items-center justify-between bg-card p-3 rounded-lg border border-gray-100">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-neutral">{trait.label}</span>
+                        <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                          {trait.data_type}{trait.unit ? ` · ${trait.unit}` : ''}
+                        </span>
+                      </div>
+                      {trait.description && (
+                        <p className="text-xs text-gray-400 mt-0.5 truncate">{trait.description}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                      <button
+                        onClick={() => { setEditingTrait(trait); setShowTraitBuilder(true); }}
+                        className="px-2 py-1 text-primary text-sm font-medium min-h-[32px] hover:bg-green-50 transition-colors rounded"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => setDeletingTrait(trait)}
+                        className="px-2 py-1 text-error text-sm font-medium min-h-[32px] hover:bg-red-50 transition-colors rounded"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       <div className="mb-6">
         <h3 className="text-lg font-semibold text-neutral mb-3">API Keys</h3>
@@ -184,6 +273,32 @@ print(trials)`}
           </pre>
         </div>
       </div>
+
+      <TraitBuilderModal
+        open={showTraitBuilder}
+        onClose={() => { setShowTraitBuilder(false); setEditingTrait(null); }}
+        onSaved={(trait) => {
+          setTraits(prev => {
+            const idx = prev.findIndex(t => t.id === trait.id);
+            if (idx >= 0) {
+              const next = [...prev];
+              next[idx] = trait;
+              return next;
+            }
+            return [...prev, trait];
+          });
+        }}
+        editTrait={editingTrait}
+      />
+
+      <ConfirmDialog
+        open={!!deletingTrait}
+        title="Delete Trait"
+        message={`Delete "${deletingTrait?.label}"? This trait will be removed from all future trials. Existing observations using this trait will not be affected.`}
+        onConfirm={handleDeleteTrait}
+        onCancel={() => setDeletingTrait(null)}
+        loading={deleteLoading}
+      />
     </div>
   );
 }

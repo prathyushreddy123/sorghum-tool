@@ -103,6 +103,16 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  updateTrait: (traitId: number, data: TraitCreate) =>
+    request<Trait>(`/traits/${traitId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  deleteTrait: (traitId: number) =>
+    request<{ success: boolean }>(`/traits/${traitId}`, { method: 'DELETE' }),
+
   getTrialTraits: (trialId: number) =>
     request<TrialTrait[]>(`/trials/${trialId}/traits`),
 

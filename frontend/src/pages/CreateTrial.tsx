@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Trait } from '../types';
+import TraitBuilderModal from '../components/TraitBuilderModal';
 
 // Crop options with emoji icons
 const CROPS = [
@@ -47,6 +48,9 @@ export default function CreateTrial() {
 
   // Step 4: round
   const [firstRoundName, setFirstRoundName] = useState('Round 1');
+
+  // Trait builder modal
+  const [showTraitBuilder, setShowTraitBuilder] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -233,6 +237,14 @@ export default function CreateTrial() {
             <span className="text-xs text-green-700 font-semibold">{selectedTraitIds.length} selected</span>
           </div>
 
+          <button
+            type="button"
+            onClick={() => setShowTraitBuilder(true)}
+            className="w-full py-2.5 border-2 border-dashed border-green-300 rounded-xl text-sm font-semibold text-green-700 hover:bg-green-50 transition-colors"
+          >
+            + Create Custom Trait
+          </button>
+
           {traitsLoading && <p className="text-center text-gray-400 py-4">Loading traits...</p>}
 
           {!traitsLoading && allTraits.length === 0 && (
@@ -328,6 +340,15 @@ export default function CreateTrial() {
           </div>
         </div>
       )}
+      <TraitBuilderModal
+        open={showTraitBuilder}
+        onClose={() => setShowTraitBuilder(false)}
+        onSaved={(trait) => {
+          setAllTraits(prev => [...prev, trait]);
+          setSelectedTraitIds(prev => [...prev, trait.id]);
+        }}
+        cropHint={effectiveCrop}
+      />
     </div>
   );
 }

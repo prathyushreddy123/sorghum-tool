@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import type { TouchEvent } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
-import type { Plot, PlotImage, ScoringRound, TrialTrait } from '../types';
+import type { Plot, PlotImage, ScoringRound, TrialTrait, WalkMode } from '../types';
 import { parseTrait } from '../types';
 import TraitInput from '../components/TraitInput';
 import ImageCapture from '../components/ImageCapture';
@@ -28,6 +28,8 @@ export default function ObservationEntry() {
   const [prevValues, setPrevValues] = useState<Record<number, string>>({});      // trait_id → prev round value
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [walkMode, setWalkMode] = useState<WalkMode>('row_by_row');
+  const [showWalkPicker, setShowWalkPicker] = useState(false);
 
   // Plot status
   const [plotStatus, setPlotStatus] = useState<string>('active');
@@ -52,8 +54,12 @@ export default function ObservationEntry() {
     setError('');
     setAiResult(null);
     try {
+      const trial = await api.getTrial(tId);
+      const wm = trial.walk_mode || 'row_by_row';
+      setWalkMode(wm);
+
       const [plots, traits, roundsList] = await Promise.all([
-        api.getPlots(tId),
+        api.getPlots(tId, { walk_mode: wm }),
         api.getTrialTraits(tId),
         api.getScoringRounds(tId),
       ]);
@@ -243,6 +249,20 @@ export default function ObservationEntry() {
     touchStartY.current = null;
   }
 
+  async function handleWalkModeChange(newMode: WalkMode) {
+    setShowWalkPicker(false);
+    try {
+      await api.updateTrial(tId, { walk_mode: newMode });
+      setWalkMode(newMode);
+      const plots = await api.getPlots(tId, { walk_mode: newMode });
+      setAllPlots(plots);
+      const idx = plots.findIndex(p => p.id === pId);
+      setCurrentIndex(idx);
+    } catch {
+      setError('Failed to change walk mode');
+    }
+  }
+
   if (loading) return <p className="text-neutral text-center py-8">Loading...</p>;
   if (!plot) return <p className="text-red-600 text-center py-8">{error || 'Plot not found'}</p>;
 
@@ -424,13 +444,57 @@ export default function ObservationEntry() {
             →
           </button>
         </div>
-        <p className="text-center text-xs text-gray-400 mt-1">
-          {currentIndex + 1} / {allPlots.length}
+        <div className="flex items-center justify-center gap-2 text-xs text-gray-400 mt-1">
+          <span>{currentIndex + 1} / {allPlots.length}</span>
           {selectedRoundId && rounds.length > 0 && (
-            <span className="ml-2 text-green-600">· {rounds.find(r => r.id === selectedRoundId)?.name}</span>
+            <span className="text-green-600">· {rounds.find(r => r.id === selectedRoundId)?.name}</span>
           )}
-        </p>
+          <span className="text-gray-300">·</span>
+          <button
+            onClick={() => setShowWalkPicker(v => !v)}
+            className="text-blue-500 hover:text-blue-700 font-medium"
+          >
+            {walkMode === 'serpentine' ? '↝' : walkMode === 'column_by_column' ? '↓' : walkMode === 'free' ? '·' : '→'}{' '}
+            {walkMode.replace(/_/g, ' ')}
+          </button>
+        </div>
       </div>
+
+      {/* Walk mode picker popover */}
+      {showWalkPicker && (
+        <div className="fixed bottom-20 left-0 right-0 z-50 px-4">
+          <div className="max-w-md mx-auto bg-white rounded-xl shadow-lg border border-gray-200 p-3">
+            <p className="text-xs font-semibold text-gray-500 mb-2">Walk Pattern</p>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { mode: 'serpentine' as WalkMode, label: 'Serpentine', icon: '↝', desc: 'Zigzag' },
+                { mode: 'row_by_row' as WalkMode, label: 'Row-by-Row', icon: '→', desc: 'L→R each row' },
+                { mode: 'column_by_column' as WalkMode, label: 'Column', icon: '↓', desc: 'Top→Bottom' },
+                { mode: 'free' as WalkMode, label: 'Free', icon: '·', desc: 'No order' },
+              ] as const).map(({ mode, label, icon, desc }) => (
+                <button
+                  key={mode}
+                  onClick={() => handleWalkModeChange(mode)}
+                  className={`p-2 rounded-lg border text-left text-sm transition-all ${
+                    walkMode === mode
+                      ? 'border-green-600 bg-green-50 text-green-700 font-semibold'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                  }`}
+                >
+                  <span className="text-base mr-1">{icon}</span> {label}
+                  <span className="block text-xs text-gray-400">{desc}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowWalkPicker(false)}
+              className="w-full mt-2 text-xs text-gray-400 hover:text-gray-600"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

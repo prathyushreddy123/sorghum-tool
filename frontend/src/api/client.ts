@@ -80,6 +80,13 @@ export const api = {
 
   getTrial: (id: number) => request<Trial>(`/trials/${id}`),
 
+  updateTrial: (id: number, data: { walk_mode?: string }) =>
+    request<Trial>(`/trials/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
   deleteTrial: (id: number) =>
     request<{ success: boolean }>(`/trials/${id}`, { method: 'DELETE' }),
 
@@ -162,7 +169,7 @@ export const api = {
     request<{ success: boolean }>(`/trials/${trialId}/rounds/${roundId}`, { method: 'DELETE' }),
 
   // ─── Plots ────────────────────────────────────────────────────────────────
-  getPlots: (trialId: number, params?: { search?: string; scored?: string; round_id?: string; status?: string }) => {
+  getPlots: (trialId: number, params?: { search?: string; scored?: string; round_id?: string; status?: string; walk_mode?: string }) => {
     const query = params ? `?${new URLSearchParams(params as Record<string, string>)}` : '';
     return request<Plot[]>(`/trials/${trialId}/plots${query}`);
   },

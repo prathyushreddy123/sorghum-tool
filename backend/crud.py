@@ -332,6 +332,22 @@ def get_trial_plot_counts(db: Session, trial_id: int) -> tuple[int, int]:
     return total, scored
 
 
+# ─── Walk-mode sorting ─────────────────────────────────────────────────────────
+
+def sort_plots_by_walk_mode(plots: list[Plot], walk_mode: str) -> list[Plot]:
+    """Re-order plots according to the chosen field-walk pattern."""
+    if walk_mode == "serpentine":
+        def _serpentine_key(p: Plot) -> tuple[int, int]:
+            col = p.column if p.row % 2 == 1 else -p.column
+            return (p.row, col)
+        return sorted(plots, key=_serpentine_key)
+
+    if walk_mode == "column_by_column":
+        return sorted(plots, key=lambda p: (p.column, p.row))
+
+    return sorted(plots, key=lambda p: (p.row, p.column))
+
+
 # ─── Plots ────────────────────────────────────────────────────────────────────
 
 def get_plots(
@@ -341,6 +357,7 @@ def get_plots(
     scored: bool | None = None,
     round_id: int | None = None,
     status: str | None = None,
+    walk_mode: str | None = None,
 ) -> list[Plot]:
     query = db.query(Plot).filter(Plot.trial_id == trial_id)
 
@@ -371,7 +388,12 @@ def get_plots(
         else:
             query = query.filter(~Plot.id.in_(db.query(all_scored.c.plot_id)))
 
-    return query.order_by(Plot.row, Plot.column).all()
+    plots = query.order_by(Plot.row, Plot.column).all()
+
+    if walk_mode and walk_mode != "row_by_row":
+        plots = sort_plots_by_walk_mode(plots, walk_mode)
+
+    return plots
 
 
 def get_plot(db: Session, plot_id: int) -> Plot | None:
@@ -452,14 +474,10 @@ def plot_has_observations(db: Session, plot_id: int, round_id: int | None = None
 
 
 def get_next_unscored_plot(
-    db: Session, trial_id: int, current_plot_id: int, round_id: int | None = None
+    db: Session, trial_id: int, current_plot_id: int,
+    round_id: int | None = None, walk_mode: str = "row_by_row",
 ) -> int | None:
-    """Find next active plot (by row, then column) after current with no observations in the given round."""
-    current = db.query(Plot).filter(Plot.id == current_plot_id).first()
-    if not current:
-        return None
-
-    # only consider active plots
+    """Find next unscored active plot after current, respecting walk order."""
     base_query = db.query(Plot).filter(Plot.trial_id == trial_id, Plot.plot_status == "active")
 
     if round_id is not None:
@@ -472,24 +490,28 @@ def get_next_unscored_plot(
     else:
         scored_ids = db.query(Observation.plot_id).distinct().subquery()
 
-    unscored_query = base_query.filter(~Plot.id.in_(db.query(scored_ids.c.plot_id)))
+    unscored = base_query.filter(~Plot.id.in_(db.query(scored_ids.c.plot_id))).all()
+    if not unscored:
+        return None
 
-    next_plot = (
-        unscored_query
-        .filter(
-            (Plot.row > current.row)
-            | ((Plot.row == current.row) & (Plot.column > current.column))
-        )
-        .order_by(Plot.row, Plot.column)
-        .first()
+    all_plots = sort_plots_by_walk_mode(
+        db.query(Plot).filter(Plot.trial_id == trial_id).all(), walk_mode
     )
+    ordered_ids = [p.id for p in all_plots]
+    unscored_ids = {p.id for p in unscored}
 
-    if next_plot:
-        return next_plot.id
+    try:
+        cur_idx = ordered_ids.index(current_plot_id)
+    except ValueError:
+        return unscored[0].id if unscored else None
 
-    # Wrap around
-    wrap_plot = unscored_query.order_by(Plot.row, Plot.column).first()
-    return wrap_plot.id if wrap_plot else None
+    # Search forward from current position, then wrap around
+    for i in range(1, len(ordered_ids)):
+        candidate = ordered_ids[(cur_idx + i) % len(ordered_ids)]
+        if candidate in unscored_ids:
+            return candidate
+
+    return None
 
 
 # ─── Plot Attributes ──────────────────────────────────────────────────────────

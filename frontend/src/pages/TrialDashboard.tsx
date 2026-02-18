@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import type { Trial, TrialStats, HeatmapData, ScoringRound, TraitStatItem } from '../types';
+import type { Trial, TrialStats, HeatmapData, ScoringRound, TraitStatItem, WalkMode } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import SeverityHistogram from '../components/SeverityHistogram';
 import MiniFieldPlan from '../components/MiniFieldPlan';
@@ -24,6 +24,7 @@ export default function TrialDashboard() {
   const [cloneDate, setCloneDate] = useState('');
   const [cloneRoundName, setCloneRoundName] = useState('Round 1');
   const [cloning, setCloning] = useState(false);
+  const [showWalkPicker, setShowWalkPicker] = useState(false);
 
   const id = Number(trialId);
 
@@ -101,6 +102,23 @@ export default function TrialDashboard() {
     }
   }
 
+  async function handleWalkModeChange(newMode: WalkMode) {
+    setShowWalkPicker(false);
+    try {
+      const updated = await api.updateTrial(id, { walk_mode: newMode });
+      setTrial(updated);
+    } catch {
+      setError('Failed to update walk mode');
+    }
+  }
+
+  const WALK_MODE_LABELS: Record<string, { icon: string; label: string }> = {
+    serpentine: { icon: '↝', label: 'Serpentine' },
+    row_by_row: { icon: '→', label: 'Row-by-Row' },
+    column_by_column: { icon: '↓', label: 'Column' },
+    free: { icon: '·', label: 'Free' },
+  };
+
   if (loading && !stats) return <p className="text-neutral text-center py-8">Loading...</p>;
   if (error) return <p className="text-error text-center py-8">{error}</p>;
   if (!trial || !stats) return null;
@@ -116,7 +134,16 @@ export default function TrialDashboard() {
       <div className="flex items-start justify-between mb-1">
         <div className="min-w-0">
           <h2 className="text-xl font-bold text-neutral truncate">{trial.name}</h2>
-          <p className="text-sm text-neutral capitalize">{trial.location} · {trial.start_date} · {trial.crop}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm text-neutral capitalize">{trial.location} · {trial.start_date} · {trial.crop}</p>
+            <button
+              onClick={() => setShowWalkPicker(v => !v)}
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
+            >
+              {WALK_MODE_LABELS[trial.walk_mode || 'row_by_row']?.icon}{' '}
+              {WALK_MODE_LABELS[trial.walk_mode || 'row_by_row']?.label}
+            </button>
+          </div>
         </div>
         <button
           onClick={() => { setCloneName(`${trial.name} (Copy)`); setCloneLocation(trial.location); setShowClone(true); }}
@@ -255,6 +282,43 @@ export default function TrialDashboard() {
         onCancel={() => setShowDelete(false)}
         loading={deleteLoading}
       />
+
+      {/* Walk mode picker */}
+      {showWalkPicker && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-5 w-full max-w-sm">
+            <h3 className="text-lg font-bold text-neutral mb-3">Field Walk Pattern</h3>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { mode: 'serpentine' as WalkMode, label: 'Serpentine', desc: 'Zigzag through rows', arrows: '→→→↓\n↓←←←\n→→→' },
+                { mode: 'row_by_row' as WalkMode, label: 'Row-by-Row', desc: 'Left to right, top to bottom', arrows: '→→→\n→→→\n→→→' },
+                { mode: 'column_by_column' as WalkMode, label: 'Column-by-Column', desc: 'Top to bottom, left to right', arrows: '↓ ↓ ↓\n↓ ↓ ↓\n↓ ↓ ↓' },
+                { mode: 'free' as WalkMode, label: 'Free', desc: 'No enforced order', arrows: '· · ·\n· · ·\n· · ·' },
+              ]).map(({ mode, label, desc, arrows }) => (
+                <button
+                  key={mode}
+                  onClick={() => handleWalkModeChange(mode)}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${
+                    trial.walk_mode === mode
+                      ? 'border-green-600 bg-green-50'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <pre className="text-xs leading-tight mb-1.5 text-gray-500 font-mono">{arrows}</pre>
+                  <div className={`text-sm font-semibold ${trial.walk_mode === mode ? 'text-green-700' : 'text-neutral'}`}>{label}</div>
+                  <div className="text-xs text-gray-400">{desc}</div>
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setShowWalkPicker(false)}
+              className="w-full mt-3 py-2 border border-gray-300 rounded-lg font-semibold text-gray-600"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Clone modal */}
       {showClone && (

@@ -49,6 +49,7 @@ class Trial(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     crop: Mapped[str] = mapped_column(String, default="sorghum")
     location: Mapped[str] = mapped_column(String, nullable=False)
+    walk_mode: Mapped[str] = mapped_column(String, default="row_by_row")  # row_by_row|serpentine|column_by_column|free
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import type { Trait } from '../types';
+import type { Trait, WalkMode } from '../types';
 import TraitBuilderModal from '../components/TraitBuilderModal';
 
 // Crop options with emoji icons
@@ -73,8 +73,9 @@ export default function CreateTrial() {
   const [traitsLoading, setTraitsLoading] = useState(false);
   const [traitSearch, setTraitSearch] = useState('');
 
-  // Step 4: round
+  // Step 4: round & walk mode
   const [firstRoundName, setFirstRoundName] = useState('Round 1');
+  const [walkMode, setWalkMode] = useState<WalkMode>('serpentine');
 
   // Trait builder modal
   const [showTraitBuilder, setShowTraitBuilder] = useState(false);
@@ -117,6 +118,7 @@ export default function CreateTrial() {
         location: location.trim(),
         start_date: startDate,
         end_date: endDate || undefined,
+        walk_mode: walkMode,
         trait_ids: selectedTraitIds,
         first_round_name: firstRoundName.trim() || 'Round 1',
       });
@@ -444,11 +446,40 @@ export default function CreateTrial() {
             <p className="text-xs text-gray-400 mt-1">You can add more rounds later from the trial dashboard.</p>
           </div>
 
+          {/* Walk mode selector */}
+          <div>
+            <label className="block text-sm font-medium text-neutral mb-2">Field Walk Pattern</label>
+            <p className="text-xs text-gray-400 mb-3">How should plots be ordered during data collection?</p>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                { mode: 'serpentine' as WalkMode, label: 'Serpentine', desc: 'Zigzag through rows', arrows: '→→→↓\n↓←←←\n→→→' },
+                { mode: 'row_by_row' as WalkMode, label: 'Row-by-Row', desc: 'Left to right, top to bottom', arrows: '→→→\n→→→\n→→→' },
+                { mode: 'column_by_column' as WalkMode, label: 'Column-by-Column', desc: 'Top to bottom, left to right', arrows: '↓ ↓ ↓\n↓ ↓ ↓\n↓ ↓ ↓' },
+                { mode: 'free' as WalkMode, label: 'Free', desc: 'No enforced order', arrows: '· · ·\n· · ·\n· · ·' },
+              ]).map(({ mode, label, desc, arrows }) => (
+                <button
+                  key={mode}
+                  onClick={() => setWalkMode(mode)}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${
+                    walkMode === mode
+                      ? 'border-green-600 bg-green-50'
+                      : 'border-gray-200 bg-white hover:border-gray-300'
+                  }`}
+                >
+                  <pre className="text-xs leading-tight mb-1.5 text-gray-500 font-mono">{arrows}</pre>
+                  <div className={`text-sm font-semibold ${walkMode === mode ? 'text-green-700' : 'text-neutral'}`}>{label}</div>
+                  <div className="text-xs text-gray-400">{desc}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Summary */}
           <div className="bg-gray-50 rounded-xl p-4 space-y-1 text-sm">
             <div className="flex justify-between"><span className="text-gray-500">Trial</span><span className="font-semibold">{name}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Crop</span><span className="font-semibold capitalize">{effectiveCrop}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Location</span><span className="font-semibold">{location}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Walk</span><span className="font-semibold capitalize">{walkMode.replace(/_/g, ' ')}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Traits</span><span className="font-semibold">{selectedTraitIds.length} selected</span></div>
           </div>
 
@@ -463,7 +494,7 @@ export default function CreateTrial() {
               disabled={saving || !firstRoundName.trim()}
               className="flex-1 py-3 bg-primary text-white rounded-lg font-semibold text-lg disabled:opacity-50"
             >
-              {saving ? 'Creating...' : 'Create Trial ✓'}
+              {saving ? 'Creating...' : 'Create Trial'}
             </button>
           </div>
         </div>

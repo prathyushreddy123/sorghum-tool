@@ -118,12 +118,16 @@ class ScoringRoundResponse(BaseModel):
 
 # --- Trial ---
 
+WALK_MODES = {"row_by_row", "serpentine", "column_by_column", "free"}
+
+
 class TrialCreate(BaseModel):
     name: str
     crop: str = "sorghum"
     location: str
     start_date: date
     end_date: date | None = None
+    walk_mode: str = "row_by_row"
     trait_ids: list[int] = []              # traits to attach at creation
     first_round_name: str = "Round 1"     # name for the auto-created first scoring round
 
@@ -135,6 +139,7 @@ class TrialResponse(BaseModel):
     location: str
     start_date: date
     end_date: date | None
+    walk_mode: str = "row_by_row"
     created_at: datetime
     plot_count: int = 0
     scored_count: int = 0
@@ -147,7 +152,12 @@ class TrialCloneRequest(BaseModel):
     location: str
     start_date: date
     end_date: date | None = None
+    walk_mode: str | None = None
     first_round_name: str = "Round 1"
+
+
+class TrialUpdate(BaseModel):
+    walk_mode: str | None = None
 
 
 # --- Plot ---

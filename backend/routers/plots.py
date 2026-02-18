@@ -23,12 +23,17 @@ def list_plots(
     scored: bool | None = Query(None),
     round_id: int | None = Query(None),
     status: str | None = Query(None),
+    walk_mode: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     trial = crud.get_trial(db, trial_id)
     if not trial:
         raise HTTPException(status_code=404, detail="Trial not found")
-    plots = crud.get_plots(db, trial_id, search=search, scored=scored, round_id=round_id, status=status)
+    effective_walk = walk_mode or trial.walk_mode or "row_by_row"
+    plots = crud.get_plots(
+        db, trial_id, search=search, scored=scored,
+        round_id=round_id, status=status, walk_mode=effective_walk,
+    )
     results = []
     for p in plots:
         resp = PlotResponse.model_validate(p)
@@ -96,7 +101,11 @@ def next_unscored(
     round_id: int | None = Query(None),
     db: Session = Depends(get_db),
 ):
-    next_id = crud.get_next_unscored_plot(db, trial_id, plot_id, round_id=round_id)
+    trial = crud.get_trial(db, trial_id)
+    walk_mode = trial.walk_mode if trial else "row_by_row"
+    next_id = crud.get_next_unscored_plot(
+        db, trial_id, plot_id, round_id=round_id, walk_mode=walk_mode,
+    )
     return NextUnscoredResponse(next_plot_id=next_id)
 
 

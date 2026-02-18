@@ -87,6 +87,8 @@ export interface ScoringRoundCreate {
 
 // ─── Trial ───────────────────────────────────────────────────────────────────
 
+export type WalkMode = 'row_by_row' | 'serpentine' | 'column_by_column' | 'free';
+
 export interface Trial {
   id: number;
   name: string;
@@ -94,6 +96,7 @@ export interface Trial {
   location: string;
   start_date: string;
   end_date: string | null;
+  walk_mode: WalkMode;
   created_at: string;
   plot_count: number;
   scored_count: number;
@@ -105,6 +108,7 @@ export interface TrialCreate {
   location: string;
   start_date: string;
   end_date?: string;
+  walk_mode?: WalkMode;
   trait_ids?: number[];
   first_round_name?: string;
 }

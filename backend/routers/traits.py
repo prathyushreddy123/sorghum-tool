@@ -18,8 +18,12 @@ router = APIRouter(tags=["traits"])
 # ─── Global Trait Library ──────────────────────────────────────────────────────
 
 @router.get("/traits", response_model=list[TraitResponse])
-def list_traits(crop_hint: str | None = Query(None), db: Session = Depends(get_db)):
-    return crud.get_traits(db, crop_hint=crop_hint)
+def list_traits(
+    crop_hint: str | None = Query(None),
+    search: str | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    return crud.get_traits(db, crop_hint=crop_hint, search=search)
 
 
 @router.post("/traits", response_model=TraitResponse, status_code=201)

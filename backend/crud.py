@@ -25,10 +25,15 @@ _LEGACY_TRAITS = {"ergot_severity", "flowering_date", "plant_height"}
 
 # ─── Traits ───────────────────────────────────────────────────────────────────
 
-def get_traits(db: Session, crop_hint: str | None = None) -> list[Trait]:
+def get_traits(db: Session, crop_hint: str | None = None, search: str | None = None) -> list[Trait]:
     query = db.query(Trait)
     if crop_hint:
         query = query.filter(Trait.crop_hint.ilike(f"%{crop_hint}%"))
+    if search:
+        pattern = f"%{search}%"
+        query = query.filter(
+            Trait.label.ilike(pattern) | Trait.name.ilike(pattern) | Trait.description.ilike(pattern)
+        )
     return query.order_by(Trait.name).all()
 
 

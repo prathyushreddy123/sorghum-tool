@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -14,11 +14,32 @@ class User(Base):
     email: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
     hashed_password: Mapped[str] = mapped_column(String, nullable=False)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now()
-    )
+    role: Mapped[str] = mapped_column(String, default="admin")  # admin|collector — informational label only
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     trials: Mapped[list["Trial"]] = relationship(back_populates="owner")
+
+
+class Trait(Base):
+    """A phenotypic trait definition — lives in the global library and is shared across trials."""
+    __tablename__ = "traits"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)   # slug, e.g. "ergot_severity"
+    label: Mapped[str] = mapped_column(String, nullable=False)               # display name, e.g. "Ergot Severity"
+    data_type: Mapped[str] = mapped_column(String, nullable=False)           # integer|float|date|categorical|text
+    unit: Mapped[str | None] = mapped_column(String, nullable=True)          # e.g. "cm", "kg/plot", "°Bx"
+    min_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    max_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    categories: Mapped[str | None] = mapped_column(String, nullable=True)    # JSON array e.g. '["1","2","3","4","5"]'
+    category_labels: Mapped[str | None] = mapped_column(String, nullable=True)  # JSON array of display labels
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    crop_hint: Mapped[str | None] = mapped_column(String, nullable=True)     # e.g. "sorghum,maize" — suggested crops
+    is_system: Mapped[bool] = mapped_column(Boolean, default=False)          # system traits can't be deleted
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    trial_traits: Mapped[list["TrialTrait"]] = relationship(back_populates="trait")
+    observations: Mapped[list["Observation"]] = relationship(back_populates="trait")
 
 
 class Trial(Base):
@@ -30,32 +51,60 @@ class Trial(Base):
     location: Mapped[str] = mapped_column(String, nullable=False)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now()
-    )
-    user_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=True
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    user_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
 
     owner: Mapped["User | None"] = relationship(back_populates="trials")
-    plots: Mapped[list["Plot"]] = relationship(
-        back_populates="trial", cascade="all, delete-orphan"
+    plots: Mapped[list["Plot"]] = relationship(back_populates="trial", cascade="all, delete-orphan")
+    trial_traits: Mapped[list["TrialTrait"]] = relationship(
+        back_populates="trial", cascade="all, delete-orphan", order_by="TrialTrait.display_order"
     )
+    scoring_rounds: Mapped[list["ScoringRound"]] = relationship(
+        back_populates="trial", cascade="all, delete-orphan", order_by="ScoringRound.created_at"
+    )
+
+
+class TrialTrait(Base):
+    """Join table linking a Trait to a Trial, with trial-specific ordering."""
+    __tablename__ = "trial_traits"
+    __table_args__ = (UniqueConstraint("trial_id", "trait_id", name="uq_trial_trait"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    trial_id: Mapped[int] = mapped_column(Integer, ForeignKey("trials.id"), nullable=False, index=True)
+    trait_id: Mapped[int] = mapped_column(Integer, ForeignKey("traits.id"), nullable=False)
+    display_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    trial: Mapped["Trial"] = relationship(back_populates="trial_traits")
+    trait: Mapped["Trait"] = relationship(back_populates="trial_traits")
+
+
+class ScoringRound(Base):
+    """A named collection session within a trial (e.g. 'Round 1', 'Flowering Stage')."""
+    __tablename__ = "scoring_rounds"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    trial_id: Mapped[int] = mapped_column(Integer, ForeignKey("trials.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    scored_at: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    trial: Mapped["Trial"] = relationship(back_populates="scoring_rounds")
+    observations: Mapped[list["Observation"]] = relationship(back_populates="scoring_round")
 
 
 class Plot(Base):
     __tablename__ = "plots"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    trial_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("trials.id"), nullable=False
-    )
+    trial_id: Mapped[int] = mapped_column(Integer, ForeignKey("trials.id"), nullable=False)
     plot_id: Mapped[str] = mapped_column(String, nullable=False)
     genotype: Mapped[str] = mapped_column(String, nullable=False)
     rep: Mapped[int] = mapped_column(Integer, nullable=False)
     row: Mapped[int] = mapped_column(Integer, nullable=False)
     column: Mapped[int] = mapped_column(Integer, nullable=False)
     notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    plot_status: Mapped[str] = mapped_column(String, default="active")  # active|skipped|flagged|border
 
     trial: Mapped["Trial"] = relationship(back_populates="plots")
     observations: Mapped[list["Observation"]] = relationship(
@@ -64,20 +113,37 @@ class Plot(Base):
     images: Mapped[list["Image"]] = relationship(
         back_populates="plot", cascade="all, delete-orphan"
     )
+    attributes: Mapped[list["PlotAttribute"]] = relationship(
+        back_populates="plot", cascade="all, delete-orphan"
+    )
+
+
+class PlotAttribute(Base):
+    """Custom key-value metadata for a plot beyond the fixed 5 fields."""
+    __tablename__ = "plot_attributes"
+    __table_args__ = (UniqueConstraint("plot_id", "key", name="uq_plot_attribute"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    plot_id: Mapped[int] = mapped_column(Integer, ForeignKey("plots.id"), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(String, nullable=False)
+    value: Mapped[str] = mapped_column(String, nullable=False)
+
+    plot: Mapped["Plot"] = relationship(back_populates="attributes")
 
 
 class Observation(Base):
     __tablename__ = "observations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    plot_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("plots.id"), nullable=False
+    plot_id: Mapped[int] = mapped_column(Integer, ForeignKey("plots.id"), nullable=False)
+    trait_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("traits.id"), nullable=True, index=True)
+    scoring_round_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("scoring_rounds.id"), nullable=True, index=True
     )
+    # trait_name kept for backward compat with existing data; new obs will populate both
     trait_name: Mapped[str] = mapped_column(String, nullable=False)
     value: Mapped[str] = mapped_column(String, nullable=False)
-    recorded_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now()
-    )
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     notes: Mapped[str | None] = mapped_column(String, nullable=True)
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -85,21 +151,19 @@ class Observation(Base):
     humidity: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     plot: Mapped["Plot"] = relationship(back_populates="observations")
+    trait: Mapped["Trait | None"] = relationship(back_populates="observations")
+    scoring_round: Mapped["ScoringRound | None"] = relationship(back_populates="observations")
 
 
 class Image(Base):
     __tablename__ = "images"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    plot_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("plots.id"), nullable=False
-    )
+    plot_id: Mapped[int] = mapped_column(Integer, ForeignKey("plots.id"), nullable=False)
     filename: Mapped[str] = mapped_column(String, nullable=False, unique=True)
     original_name: Mapped[str] = mapped_column(String, nullable=False)
     image_type: Mapped[str] = mapped_column(String, nullable=False, default="panicle")
-    uploaded_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now()
-    )
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     plot: Mapped["Plot"] = relationship(back_populates="images")
 
@@ -110,8 +174,6 @@ class APIKey(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_label: Mapped[str] = mapped_column(String, nullable=False)
     key_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

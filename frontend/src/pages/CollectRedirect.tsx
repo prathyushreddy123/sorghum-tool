@@ -1,33 +1,55 @@
 import { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 
 export default function CollectRedirect() {
   const { trialId } = useParams<{ trialId: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (!trialId) return;
     const id = Number(trialId);
+    const roundIdParam = searchParams.get('round_id');
 
-    api.getPlots(id, { scored: 'false' })
-      .then((plots) => {
-        if (plots.length > 0) {
-          navigate(`/trials/${id}/collect/${plots[0].id}`, { replace: true });
-        } else {
-          // All scored — go to first plot
-          return api.getPlots(id).then((allPlots) => {
-            if (allPlots.length > 0) {
-              navigate(`/trials/${id}/collect/${allPlots[0].id}`, { replace: true });
-            } else {
-              setError('No plots in this trial. Import plots first.');
-            }
-          });
+    async function redirect() {
+      try {
+        // Get first round if not specified
+        let roundId: number | undefined = roundIdParam ? Number(roundIdParam) : undefined;
+        if (!roundId) {
+          const rounds = await api.getScoringRounds(id);
+          if (rounds.length > 0) roundId = rounds[0].id;
         }
-      })
-      .catch((e) => setError(e.message));
-  }, [trialId, navigate]);
+
+        const roundQuery = roundId ? `?round_id=${roundId}` : '';
+
+        // Find first unscored active plot
+        const unscored = await api.getPlots(id, {
+          scored: 'false',
+          status: 'active',
+          ...(roundId ? { round_id: String(roundId) } : {}),
+        });
+
+        if (unscored.length > 0) {
+          navigate(`/trials/${id}/collect/${unscored[0].id}${roundQuery}`, { replace: true });
+          return;
+        }
+
+        // All scored — go to first plot
+        const allPlots = await api.getPlots(id);
+        if (allPlots.length > 0) {
+          navigate(`/trials/${id}/collect/${allPlots[0].id}${roundQuery}`, { replace: true });
+        } else {
+          setError('No plots in this trial. Import plots first.');
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load');
+      }
+    }
+
+    redirect();
+  }, [trialId, navigate, searchParams]);
 
   if (error) {
     return (

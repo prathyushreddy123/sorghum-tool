@@ -1,11 +1,18 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import type { Plot, TrialStats } from '../types';
+import type { Plot, TrialStats, PlotStatus } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import BarcodeScanner from '../components/BarcodeScanner';
 
 type Filter = 'all' | 'unscored' | 'scored';
+
+const STATUS_BADGE: Record<PlotStatus, { label: string; cls: string }> = {
+  active:   { label: 'Active',   cls: 'bg-gray-100 text-gray-500' },
+  skipped:  { label: 'Skipped',  cls: 'bg-yellow-100 text-yellow-700' },
+  flagged:  { label: 'Flagged',  cls: 'bg-red-100 text-red-700' },
+  border:   { label: 'Border',   cls: 'bg-blue-100 text-blue-700' },
+};
 
 export default function PlotList() {
   const { trialId } = useParams<{ trialId: string }>();
@@ -20,25 +27,20 @@ export default function PlotList() {
   const [filter, setFilter] = useState<Filter>('all');
   const [stats, setStats] = useState<TrialStats | null>(null);
 
-  // Delete state
   const [deletingPlotId, setDeletingPlotId] = useState<number | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  // Scanner state
   const [scanning, setScanning] = useState(false);
 
-  // Import state
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(timer);
   }, [search]);
 
-  // Fetch stats for tab counts
   const fetchStats = useCallback(() => {
     api.getStats(id).then(setStats).catch(() => {});
   }, [id]);
@@ -110,7 +112,6 @@ export default function PlotList() {
         navigate(`/trials/${id}/collect/${match.id}`);
         return;
       }
-      // Try fetching all plots in case current list is filtered
       api.getPlots(id).then((allPlots) => {
         const found = allPlots.find((p) => p.plot_id === value);
         if (found) {
@@ -206,40 +207,53 @@ export default function PlotList() {
         </div>
       ) : (
         <div className="space-y-2">
-          {plots.map((plot) => (
-            <div
-              key={plot.id}
-              className="w-full text-left bg-card rounded-lg p-4 shadow-sm border border-gray-100 flex items-center gap-2 min-h-[60px]"
-            >
+          {plots.map((plot) => {
+            const statusBadge = STATUS_BADGE[plot.plot_status] ?? STATUS_BADGE.active;
+            return (
               <div
-                onClick={() => navigate(`/trials/${id}/collect/${plot.id}`)}
-                className="min-w-0 flex-1 cursor-pointer"
+                key={plot.id}
+                className="w-full text-left bg-card rounded-lg p-4 shadow-sm border border-gray-100 flex items-center gap-2 min-h-[60px]"
               >
-                <div className="font-semibold text-neutral truncate">{plot.plot_id}</div>
-                <div className="text-sm text-gray-500 truncate">
-                  {plot.genotype} &middot; Rep {plot.rep} &middot; R{plot.row}C{plot.column}
+                <div
+                  onClick={() => navigate(`/trials/${id}/collect/${plot.id}`)}
+                  className="min-w-0 flex-1 cursor-pointer"
+                >
+                  <div className="font-semibold text-neutral truncate">{plot.plot_id}</div>
+                  <div className="text-sm text-gray-500 truncate">
+                    {plot.genotype} · Rep {plot.rep} · R{plot.row}C{plot.column}
+                  </div>
                 </div>
+
+                {/* Status badge (non-active) */}
+                {plot.plot_status !== 'active' && (
+                  <span className={`flex-shrink-0 px-2 py-1 text-xs font-medium rounded-full ${statusBadge.cls}`}>
+                    {statusBadge.label}
+                  </span>
+                )}
+
+                {/* Scored badge */}
+                {plot.has_observations ? (
+                  <span className="flex-shrink-0 px-2 py-1 bg-primary-light text-white text-xs font-medium rounded-full">
+                    Scored
+                  </span>
+                ) : (
+                  <span className="flex-shrink-0 px-2 py-1 bg-gray-200 text-neutral text-xs font-medium rounded-full">
+                    Unscored
+                  </span>
+                )}
+
+                <button
+                  onClick={() => setDeletingPlotId(plot.id)}
+                  className="flex-shrink-0 p-2 text-gray-400 hover:text-error rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
+                  aria-label={`Delete plot ${plot.plot_id}`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                </button>
               </div>
-              {plot.has_observations ? (
-                <span className="flex-shrink-0 px-2 py-1 bg-primary-light text-white text-xs font-medium rounded-full">
-                  Scored
-                </span>
-              ) : (
-                <span className="flex-shrink-0 px-2 py-1 bg-gray-200 text-neutral text-xs font-medium rounded-full">
-                  Unscored
-                </span>
-              )}
-              <button
-                onClick={() => setDeletingPlotId(plot.id)}
-                className="flex-shrink-0 p-2 text-gray-400 hover:text-error rounded-lg min-w-[44px] min-h-[44px] flex items-center justify-center"
-                aria-label={`Delete plot ${plot.plot_id}`}
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                </svg>
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

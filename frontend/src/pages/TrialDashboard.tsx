@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import type { Trial, TrialStats, HeatmapData } from '../types';
+import type { Trial, TrialStats, HeatmapData, ScoringRound, TraitStatItem } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import SeverityHistogram from '../components/SeverityHistogram';
 import MiniFieldPlan from '../components/MiniFieldPlan';
@@ -12,28 +12,62 @@ export default function TrialDashboard() {
   const [trial, setTrial] = useState<Trial | null>(null);
   const [stats, setStats] = useState<TrialStats | null>(null);
   const [heatmap, setHeatmap] = useState<HeatmapData | null>(null);
+  const [rounds, setRounds] = useState<ScoringRound[]>([]);
+  const [selectedRoundId, setSelectedRoundId] = useState<number | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showDelete, setShowDelete] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [showClone, setShowClone] = useState(false);
+  const [cloneName, setCloneName] = useState('');
+  const [cloneLocation, setCloneLocation] = useState('');
+  const [cloneDate, setCloneDate] = useState('');
+  const [cloneRoundName, setCloneRoundName] = useState('Round 1');
+  const [cloning, setCloning] = useState(false);
 
-  const loadData = useCallback(() => {
-    if (!trialId) return;
-    const id = Number(trialId);
+  const id = Number(trialId);
+
+  const loadData = useCallback((roundId?: number) => {
+    if (!id) return;
     setLoading(true);
-    Promise.all([api.getTrial(id), api.getStats(id), api.getHeatmap(id)])
-      .then(([t, s, h]) => { setTrial(t); setStats(s); setHeatmap(h); })
+    Promise.all([
+      api.getTrial(id),
+      api.getStats(id, roundId),
+      api.getHeatmap(id, undefined, roundId),
+      api.getScoringRounds(id),
+    ])
+      .then(([t, s, h, r]) => {
+        setTrial(t);
+        setStats(s);
+        setHeatmap(h);
+        setRounds(r);
+        // Auto-select first round if not yet selected
+        if (!roundId && r.length > 0) {
+          setSelectedRoundId(r[0].id);
+        }
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [trialId]);
+  }, [id]);
 
-  // Refresh on mount and when navigating back (focus event)
   useEffect(() => {
     loadData();
-    const onFocus = () => loadData();
+    const onFocus = () => loadData(selectedRoundId);
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, [loadData]);
+
+  function handleRoundChange(roundId: number | undefined) {
+    setSelectedRoundId(roundId);
+    setLoading(true);
+    Promise.all([
+      api.getStats(id, roundId),
+      api.getHeatmap(id, undefined, roundId),
+    ])
+      .then(([s, h]) => { setStats(s); setHeatmap(h); })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }
 
   async function handleDelete() {
     if (!trial) return;
@@ -48,7 +82,26 @@ export default function TrialDashboard() {
     }
   }
 
-  if (loading) return <p className="text-neutral text-center py-8">Loading...</p>;
+  async function handleClone() {
+    if (!trial || !cloneName.trim() || !cloneDate) return;
+    setCloning(true);
+    try {
+      const cloned = await api.cloneTrial(trial.id, {
+        name: cloneName.trim(),
+        location: cloneLocation.trim() || trial.location,
+        start_date: cloneDate,
+        first_round_name: cloneRoundName.trim() || 'Round 1',
+      });
+      navigate(`/trials/${cloned.id}`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Clone failed');
+    } finally {
+      setCloning(false);
+      setShowClone(false);
+    }
+  }
+
+  if (loading && !stats) return <p className="text-neutral text-center py-8">Loading...</p>;
   if (error) return <p className="text-error text-center py-8">{error}</p>;
   if (!trial || !stats) return null;
 
@@ -56,10 +109,41 @@ export default function TrialDashboard() {
     ? Math.round((stats.scored_plots / stats.total_plots) * 100)
     : 0;
 
+  const selectedRound = rounds.find((r) => r.id === selectedRoundId);
+
   return (
     <div>
-      <h2 className="text-xl font-bold text-neutral">{trial.name}</h2>
-      <p className="text-sm text-neutral mb-4">{trial.location} &middot; {trial.start_date}</p>
+      <div className="flex items-start justify-between mb-1">
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold text-neutral truncate">{trial.name}</h2>
+          <p className="text-sm text-neutral capitalize">{trial.location} · {trial.start_date} · {trial.crop}</p>
+        </div>
+        <button
+          onClick={() => { setCloneName(`${trial.name} (Copy)`); setCloneLocation(trial.location); setShowClone(true); }}
+          className="flex-shrink-0 ml-2 px-3 py-1.5 text-xs border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition-colors"
+        >
+          Clone
+        </button>
+      </div>
+
+      {/* Round selector tabs */}
+      {rounds.length > 0 && (
+        <div className="flex gap-1 mb-4 overflow-x-auto pb-1 mt-3">
+          {rounds.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => handleRoundChange(r.id)}
+              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                selectedRoundId === r.id
+                  ? 'bg-primary text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {r.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Progress */}
       <div className="mb-6">
@@ -71,32 +155,31 @@ export default function TrialDashboard() {
         </div>
         <p className="text-sm text-neutral mt-1">
           {stats.scored_plots}/{stats.total_plots} plots scored ({pct}%)
+          {selectedRound && <span className="text-gray-400 ml-1">— {selectedRound.name}</span>}
         </p>
       </div>
 
-      {/* Stats cards */}
+      {/* Dynamic stats cards */}
       {stats.total_plots > 0 ? (
-        <div className="grid grid-cols-2 gap-3 mb-6">
-          <StatCard
-            label="Avg Ergot"
-            value={stats.traits.ergot_severity.mean?.toFixed(1) ?? '—'}
-            sub={`n=${stats.traits.ergot_severity.count}`}
-          />
-          <StatCard
-            label="Avg Height"
-            value={stats.traits.plant_height.mean ? `${stats.traits.plant_height.mean.toFixed(0)} cm` : '—'}
-            sub={`n=${stats.traits.plant_height.count}`}
-          />
-          <StatCard
-            label="Flowering"
-            value={stats.traits.flowering_date.count > 0 ? `${stats.traits.flowering_date.count}` : '—'}
-            sub={stats.traits.flowering_date.earliest ?? 'No dates'}
-          />
-          <StatCard
-            label="Total Plots"
-            value={String(stats.total_plots)}
-            sub={`${stats.total_plots - stats.scored_plots} remaining`}
-          />
+        <div className="space-y-3 mb-6">
+          {/* Total Plots card always shown */}
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard
+              label="Total Plots"
+              value={String(stats.total_plots)}
+              sub={`${stats.total_plots - stats.scored_plots} remaining`}
+            />
+            <StatCard
+              label="Scored"
+              value={`${pct}%`}
+              sub={`${stats.scored_plots} plots`}
+            />
+          </div>
+
+          {/* Trait stats */}
+          {stats.traits.map((t) => (
+            <TraitStatCard key={t.trait_id} stat={t} />
+          ))}
         </div>
       ) : (
         <div className="text-center py-8 mb-6 bg-card rounded-lg shadow">
@@ -108,7 +191,10 @@ export default function TrialDashboard() {
       {/* Mini field plan grid */}
       {heatmap && heatmap.cells.length > 0 && (
         <div className="mb-6">
-          <h3 className="text-sm font-semibold text-neutral mb-2">Field Plan</h3>
+          <h3 className="text-sm font-semibold text-neutral mb-2">
+            Field Plan
+            {heatmap.trait && <span className="text-gray-400 font-normal ml-1">· {heatmap.trait.label}</span>}
+          </h3>
           <div className="bg-card rounded-lg p-3 shadow">
             <MiniFieldPlan
               trialId={trial.id}
@@ -120,21 +206,13 @@ export default function TrialDashboard() {
         </div>
       )}
 
-      {/* Severity distribution */}
-      {stats.ergot_distribution?.some((d) => d.count > 0) && (
-        <div className="mb-6">
-          <h3 className="text-sm font-semibold text-neutral mb-2">Ergot Severity Distribution</h3>
-          <div className="bg-card rounded-lg p-4 shadow">
-            <SeverityHistogram data={stats.ergot_distribution} />
-          </div>
-        </div>
-      )}
-
       {/* Action buttons */}
       <div className="space-y-3">
         {stats.total_plots > 0 && (
           <Link
-            to={`/trials/${trial.id}/collect`}
+            to={selectedRoundId
+              ? `/trials/${trial.id}/collect?round_id=${selectedRoundId}`
+              : `/trials/${trial.id}/collect`}
             className="block w-full py-3 bg-primary text-white text-center rounded-lg font-semibold text-lg min-h-[48px] cursor-pointer hover:bg-primary-dark transition-colors"
           >
             Record Observations
@@ -152,14 +230,14 @@ export default function TrialDashboard() {
         </Link>
         {stats.scored_plots > 0 && (
           <Link
-            to={`/trials/${trial.id}/heatmap`}
+            to={`/trials/${trial.id}/heatmap${selectedRoundId ? `?round_id=${selectedRoundId}` : ''}`}
             className="block w-full py-3 bg-card text-primary text-center rounded-lg font-semibold text-lg min-h-[48px] border-2 border-primary cursor-pointer hover:bg-primary-light transition-colors"
           >
-            Severity Heatmap
+            Field Heatmap
           </Link>
         )}
         {stats.scored_plots > 0 && (
-          <ExportButton trialId={trial.id} trialName={trial.name} />
+          <ExportButton trialId={trial.id} trialName={trial.name} roundId={selectedRoundId} />
         )}
         <button
           onClick={() => setShowDelete(true)}
@@ -177,6 +255,69 @@ export default function TrialDashboard() {
         onCancel={() => setShowDelete(false)}
         loading={deleteLoading}
       />
+
+      {/* Clone modal */}
+      {showClone && (
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-5 w-full max-w-sm space-y-3">
+            <h3 className="text-lg font-bold text-neutral">Clone Trial</h3>
+            <p className="text-xs text-gray-500">Creates a new trial with the same plots and traits, but no observations.</p>
+            <div>
+              <label className="block text-sm font-medium text-neutral mb-1">New Trial Name *</label>
+              <input
+                type="text"
+                value={cloneName}
+                onChange={(e) => setCloneName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-neutral mb-1">Location</label>
+              <input
+                type="text"
+                value={cloneLocation}
+                onChange={(e) => setCloneLocation(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                placeholder={trial.location}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-neutral mb-1">Start Date *</label>
+              <input
+                type="date"
+                value={cloneDate}
+                onChange={(e) => setCloneDate(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-neutral mb-1">First Round Name</label>
+              <input
+                type="text"
+                value={cloneRoundName}
+                onChange={(e) => setCloneRoundName(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button
+                onClick={() => setShowClone(false)}
+                className="flex-1 py-2.5 border border-gray-300 rounded-lg font-semibold text-gray-600"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleClone}
+                disabled={cloning || !cloneName.trim() || !cloneDate}
+                className="flex-1 py-2.5 bg-primary text-white rounded-lg font-semibold disabled:opacity-50"
+              >
+                {cloning ? 'Cloning...' : 'Clone Trial'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -191,13 +332,75 @@ function StatCard({ label, value, sub }: { label: string; value: string; sub: st
   );
 }
 
-function ExportButton({ trialId, trialName }: { trialId: number; trialName: string }) {
+function TraitStatCard({ stat }: { stat: TraitStatItem }) {
+  const isNumeric = stat.data_type === 'integer' || stat.data_type === 'float';
+  const isCategorical = stat.data_type === 'categorical';
+  const isDate = stat.data_type === 'date';
+
+  return (
+    <div className="bg-card rounded-lg p-4 shadow">
+      <div className="flex items-center justify-between mb-2">
+        <span className="font-semibold text-sm text-neutral">
+          {stat.trait_label}
+          {stat.unit && <span className="text-gray-400 font-normal ml-1">({stat.unit})</span>}
+        </span>
+        <span className="text-xs text-gray-400">n={stat.count}</span>
+      </div>
+
+      {isNumeric && stat.mean !== undefined && (
+        <div className="flex items-baseline gap-3">
+          <div>
+            <span className="text-2xl font-bold text-primary">{stat.mean.toFixed(1)}</span>
+            {stat.sd !== undefined && (
+              <span className="text-sm text-gray-400 ml-1">± {stat.sd.toFixed(1)}</span>
+            )}
+          </div>
+          {stat.min_value !== undefined && stat.max_value !== undefined && (
+            <span className="text-xs text-gray-400">
+              [{stat.min_value.toFixed(1)} – {stat.max_value.toFixed(1)}]
+            </span>
+          )}
+        </div>
+      )}
+
+      {isCategorical && stat.distribution && stat.distribution.length > 0 && (
+        <SeverityHistogram data={stat.distribution} />
+      )}
+
+      {isDate && (
+        <div className="text-sm text-gray-600">
+          {stat.count > 0 ? (
+            <>
+              <span className="font-semibold text-primary">{stat.count}</span> dates recorded
+              {stat.earliest && <span className="text-gray-400 ml-2">from {stat.earliest}</span>}
+              {stat.latest && stat.latest !== stat.earliest && <span className="text-gray-400"> to {stat.latest}</span>}
+            </>
+          ) : (
+            <span className="text-gray-400">No dates recorded</span>
+          )}
+        </div>
+      )}
+
+      {stat.data_type === 'text' && (
+        <div className="text-sm text-gray-600">
+          <span className="font-semibold text-primary">{stat.count}</span> notes recorded
+        </div>
+      )}
+
+      {stat.count === 0 && (
+        <p className="text-xs text-gray-400 mt-1">No data yet</p>
+      )}
+    </div>
+  );
+}
+
+function ExportButton({ trialId, trialName, roundId }: { trialId: number; trialName: string; roundId?: number }) {
   const [exporting, setExporting] = useState(false);
 
   async function handleExport() {
     setExporting(true);
     try {
-      const blob = await api.exportCsv(trialId);
+      const blob = await api.exportCsv(trialId, roundId);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

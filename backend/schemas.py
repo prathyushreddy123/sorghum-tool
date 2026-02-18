@@ -1,5 +1,4 @@
 from datetime import date, datetime
-from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +20,7 @@ class UserResponse(BaseModel):
     id: int
     email: str
     name: str
+    role: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -32,6 +32,90 @@ class TokenResponse(BaseModel):
     user: UserResponse
 
 
+# --- Trait ---
+
+class TraitCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    label: str = Field(..., min_length=1)
+    data_type: str = Field(..., pattern="^(integer|float|date|categorical|text)$")
+    unit: str | None = None
+    min_value: float | None = None
+    max_value: float | None = None
+    categories: str | None = None        # JSON array string, e.g. '["1","2","3","4","5"]'
+    category_labels: str | None = None   # JSON array string, e.g. '["None","Low","Moderate","High","Severe"]'
+    description: str | None = None
+    crop_hint: str | None = None
+
+
+class TraitResponse(BaseModel):
+    id: int
+    name: str
+    label: str
+    data_type: str
+    unit: str | None
+    min_value: float | None
+    max_value: float | None
+    categories: str | None
+    category_labels: str | None
+    description: str | None
+    crop_hint: str | None
+    is_system: bool
+
+    model_config = {"from_attributes": True}
+
+
+# --- Trial Trait ---
+
+class TrialTraitAdd(BaseModel):
+    trait_id: int
+    display_order: int = 0
+
+
+class TrialTraitBulkAdd(BaseModel):
+    trait_ids: list[int]
+
+
+class TrialTraitReorder(BaseModel):
+    ordered_trait_ids: list[int]  # trait IDs in desired display order
+
+
+class TrialTraitResponse(BaseModel):
+    id: int
+    trial_id: int
+    trait_id: int
+    display_order: int
+    trait: TraitResponse
+
+    model_config = {"from_attributes": True}
+
+
+# --- Scoring Round ---
+
+class ScoringRoundCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    scored_at: date | None = None
+    notes: str | None = None
+
+
+class ScoringRoundUpdate(BaseModel):
+    name: str | None = None
+    scored_at: date | None = None
+    notes: str | None = None
+
+
+class ScoringRoundResponse(BaseModel):
+    id: int
+    trial_id: int
+    name: str
+    scored_at: date | None
+    notes: str | None
+    created_at: datetime
+    scored_plots: int = 0    # computed: plots with ≥1 obs in this round
+    total_plots: int = 0     # computed
+
+    model_config = {"from_attributes": True}
+
+
 # --- Trial ---
 
 class TrialCreate(BaseModel):
@@ -40,6 +124,8 @@ class TrialCreate(BaseModel):
     location: str
     start_date: date
     end_date: date | None = None
+    trait_ids: list[int] = []              # traits to attach at creation
+    first_round_name: str = "Round 1"     # name for the auto-created first scoring round
 
 
 class TrialResponse(BaseModel):
@@ -56,6 +142,14 @@ class TrialResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TrialCloneRequest(BaseModel):
+    name: str
+    location: str
+    start_date: date
+    end_date: date | None = None
+    first_round_name: str = "Round 1"
+
+
 # --- Plot ---
 
 class PlotCreate(BaseModel):
@@ -67,6 +161,10 @@ class PlotCreate(BaseModel):
     notes: str | None = None
 
 
+class PlotStatusUpdate(BaseModel):
+    plot_status: str = Field(..., pattern="^(active|skipped|flagged|border)$")
+
+
 class PlotResponse(BaseModel):
     id: int
     trial_id: int
@@ -76,6 +174,7 @@ class PlotResponse(BaseModel):
     row: int
     column: int
     notes: str | None
+    plot_status: str
     has_observations: bool = False
 
     model_config = {"from_attributes": True}
@@ -86,14 +185,27 @@ class PlotImportResponse(BaseModel):
     errors: list[str]
 
 
+# --- Plot Attribute ---
+
+class PlotAttributeSet(BaseModel):
+    key: str = Field(..., min_length=1)
+    value: str
+
+
+class PlotAttributeResponse(BaseModel):
+    key: str
+    value: str
+
+    model_config = {"from_attributes": True}
+
+
 # --- Observation ---
-
-TraitName = Literal["ergot_severity", "flowering_date", "plant_height"]
-
 
 class ObservationCreate(BaseModel):
     plot_id: int
-    trait_name: TraitName
+    trait_id: int | None = None          # preferred for new observations
+    scoring_round_id: int | None = None  # preferred for new observations
+    trait_name: str | None = None        # fallback for backward compat
     value: str
     notes: str | None = None
     latitude: float | None = None
@@ -103,7 +215,8 @@ class ObservationCreate(BaseModel):
 
 
 class ObservationBulkItem(BaseModel):
-    trait_name: TraitName
+    trait_id: int | None = None
+    trait_name: str | None = None        # fallback
     value: str
     notes: str | None = None
     latitude: float | None = None
@@ -113,6 +226,7 @@ class ObservationBulkItem(BaseModel):
 
 
 class ObservationBulkCreate(BaseModel):
+    scoring_round_id: int | None = None
     observations: list[ObservationBulkItem]
 
 
@@ -124,6 +238,8 @@ class ObservationUpdate(BaseModel):
 class ObservationResponse(BaseModel):
     id: int
     plot_id: int
+    trait_id: int | None
+    scoring_round_id: int | None
     trait_name: str
     value: str
     recorded_at: datetime
@@ -184,38 +300,40 @@ class HeightPredictionResponse(BaseModel):
     provider: str
 
 
-# --- Stats ---
+# --- Stats (dynamic, one entry per trait) ---
 
-class NumericStats(BaseModel):
-    count: int = 0
+class DistributionItem(BaseModel):
+    value: str
+    label: str | None = None
+    count: int
+
+
+class TraitStatItem(BaseModel):
+    trait_id: int
+    trait_name: str
+    trait_label: str
+    data_type: str
+    unit: str | None
+    count: int          # number of scored plots for this trait
+    total_plots: int
+    # numeric aggregates (integer/float)
     mean: float | None = None
     sd: float | None = None
-    min: float | None = None
-    max: float | None = None
-
-
-class DateStats(BaseModel):
-    count: int = 0
+    min_value: float | None = None
+    max_value: float | None = None
+    # categorical distribution
+    distribution: list[DistributionItem] | None = None
+    # date range
     earliest: str | None = None
     latest: str | None = None
 
 
-class TraitStats(BaseModel):
-    ergot_severity: NumericStats = NumericStats()
-    plant_height: NumericStats = NumericStats()
-    flowering_date: DateStats = DateStats()
-
-
-class SeverityDistributionItem(BaseModel):
-    score: int
-    count: int
-
-
 class TrialStatsResponse(BaseModel):
+    trial_id: int
+    round_id: int | None
     total_plots: int
-    scored_plots: int
-    traits: TraitStats
-    ergot_distribution: list[SeverityDistributionItem] = []
+    scored_plots: int   # plots with ≥1 observation in the given round
+    traits: list[TraitStatItem]
 
 
 # --- Heatmap ---
@@ -226,13 +344,17 @@ class HeatmapCell(BaseModel):
     row: int
     column: int
     genotype: str
-    ergot_severity: int | None = None
+    plot_status: str
+    value: str | None = None          # raw string value for selected trait in selected round
+    numeric_value: float | None = None  # for color gradient
 
 
 class HeatmapResponse(BaseModel):
     rows: int
     columns: int
     cells: list[HeatmapCell]
+    trait: TraitResponse | None = None   # which trait is displayed
+    round_id: int | None = None
 
 
 # --- Next unscored ---

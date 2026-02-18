@@ -2,6 +2,7 @@ export interface User {
   id: number;
   email: string;
   name: string;
+  role: string;
   created_at: string;
 }
 
@@ -10,6 +11,81 @@ export interface AuthResponse {
   token_type: string;
   user: User;
 }
+
+// ─── Traits ──────────────────────────────────────────────────────────────────
+
+export type TraitDataType = 'integer' | 'float' | 'date' | 'categorical' | 'text';
+
+export interface Trait {
+  id: number;
+  name: string;
+  label: string;
+  data_type: TraitDataType;
+  unit: string | null;
+  min_value: number | null;
+  max_value: number | null;
+  categories: string | null;       // JSON array string e.g. '["1","2","3"]'
+  category_labels: string | null;  // JSON array string e.g. '["None","Low","Moderate"]'
+  description: string | null;
+  crop_hint: string | null;
+  is_system: boolean;
+}
+
+export interface TraitCreate {
+  name: string;
+  label: string;
+  data_type: TraitDataType;
+  unit?: string;
+  min_value?: number;
+  max_value?: number;
+  categories?: string;
+  category_labels?: string;
+  description?: string;
+  crop_hint?: string;
+}
+
+export interface TrialTrait {
+  id: number;
+  trial_id: number;
+  trait_id: number;
+  display_order: number;
+  trait: Trait;
+}
+
+// Parsed version with arrays instead of JSON strings
+export interface ParsedTrait extends Omit<Trait, 'categories' | 'category_labels'> {
+  categoriesArr: string[];
+  categoryLabelsArr: string[];
+}
+
+export function parseTrait(trait: Trait): ParsedTrait {
+  return {
+    ...trait,
+    categoriesArr: trait.categories ? JSON.parse(trait.categories) : [],
+    categoryLabelsArr: trait.category_labels ? JSON.parse(trait.category_labels) : [],
+  };
+}
+
+// ─── Scoring Rounds ───────────────────────────────────────────────────────────
+
+export interface ScoringRound {
+  id: number;
+  trial_id: number;
+  name: string;
+  scored_at: string | null;
+  notes: string | null;
+  created_at: string;
+  scored_plots: number;
+  total_plots: number;
+}
+
+export interface ScoringRoundCreate {
+  name: string;
+  scored_at?: string;
+  notes?: string;
+}
+
+// ─── Trial ───────────────────────────────────────────────────────────────────
 
 export interface Trial {
   id: number;
@@ -29,7 +105,21 @@ export interface TrialCreate {
   location: string;
   start_date: string;
   end_date?: string;
+  trait_ids?: number[];
+  first_round_name?: string;
 }
+
+export interface TrialCloneRequest {
+  name: string;
+  location: string;
+  start_date: string;
+  end_date?: string;
+  first_round_name?: string;
+}
+
+// ─── Plot ─────────────────────────────────────────────────────────────────────
+
+export type PlotStatus = 'active' | 'skipped' | 'flagged' | 'border';
 
 export interface Plot {
   id: number;
@@ -40,13 +130,23 @@ export interface Plot {
   row: number;
   column: number;
   notes: string | null;
+  plot_status: PlotStatus;
   has_observations: boolean;
 }
+
+export interface PlotAttribute {
+  key: string;
+  value: string;
+}
+
+// ─── Observation ──────────────────────────────────────────────────────────────
 
 export interface Observation {
   id: number;
   plot_id: number;
-  trait_name: 'ergot_severity' | 'flowering_date' | 'plant_height';
+  trait_id: number | null;
+  scoring_round_id: number | null;
+  trait_name: string;
   value: string;
   recorded_at: string;
   notes: string | null;
@@ -57,7 +157,8 @@ export interface Observation {
 }
 
 export interface ObservationBulkItem {
-  trait_name: 'ergot_severity' | 'flowering_date' | 'plant_height';
+  trait_id?: number;
+  trait_name?: string;
   value: string;
   notes?: string;
   latitude?: number;
@@ -65,6 +166,13 @@ export interface ObservationBulkItem {
   temperature?: number;
   humidity?: number;
 }
+
+export interface ObservationBulkCreate {
+  scoring_round_id?: number;
+  observations: ObservationBulkItem[];
+}
+
+// ─── API Key ──────────────────────────────────────────────────────────────────
 
 export interface APIKey {
   id: number;
@@ -78,6 +186,8 @@ export interface APIKeyCreateResponse extends APIKey {
   raw_key: string;
 }
 
+// ─── Image ────────────────────────────────────────────────────────────────────
+
 export interface PlotImage {
   id: number;
   plot_id: number;
@@ -87,35 +197,40 @@ export interface PlotImage {
   uploaded_at: string;
 }
 
-export interface NumericStats {
+// ─── Stats ────────────────────────────────────────────────────────────────────
+
+export interface DistributionItem {
+  value: string;
+  label: string | null;
   count: number;
-  mean: number | null;
-  sd: number | null;
-  min: number | null;
-  max: number | null;
 }
 
-export interface DateStats {
+export interface TraitStatItem {
+  trait_id: number;
+  trait_name: string;
+  trait_label: string;
+  data_type: TraitDataType;
+  unit: string | null;
   count: number;
-  earliest: string | null;
-  latest: string | null;
-}
-
-export interface SeverityDistributionItem {
-  score: number;
-  count: number;
+  total_plots: number;
+  mean?: number;
+  sd?: number;
+  min_value?: number;
+  max_value?: number;
+  distribution?: DistributionItem[];
+  earliest?: string;
+  latest?: string;
 }
 
 export interface TrialStats {
+  trial_id: number;
+  round_id: number | null;
   total_plots: number;
   scored_plots: number;
-  traits: {
-    ergot_severity: NumericStats;
-    plant_height: NumericStats;
-    flowering_date: DateStats;
-  };
-  ergot_distribution: SeverityDistributionItem[];
+  traits: TraitStatItem[];
 }
+
+// ─── Heatmap ──────────────────────────────────────────────────────────────────
 
 export interface HeatmapCell {
   plot_id: string;
@@ -123,14 +238,20 @@ export interface HeatmapCell {
   row: number;
   column: number;
   genotype: string;
-  ergot_severity: number | null;
+  plot_status: PlotStatus;
+  value: string | null;
+  numeric_value: number | null;
 }
 
 export interface HeatmapData {
   rows: number;
   columns: number;
   cells: HeatmapCell[];
+  trait: Trait | null;
+  round_id: number | null;
 }
+
+// ─── Misc ─────────────────────────────────────────────────────────────────────
 
 export interface PlotImportResponse {
   imported: number;

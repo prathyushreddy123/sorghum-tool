@@ -6,10 +6,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
-from database import Base, engine
+from database import Base, engine, get_db
 import models  # noqa: F401 — registers models with Base.metadata
 from middleware import APIKeyMiddleware
-from routers import auth, images, observations, plots, stats, trials
+from routers import auth, images, observations, plots, rounds, stats, traits, trials
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +18,20 @@ try:
     alembic_cfg = Config("alembic.ini")
     command.upgrade(alembic_cfg, "head")
 except Exception as e:
-    # Fallback: create tables directly (e.g. in test environments without alembic.ini)
     logger.warning(f"Alembic migration failed ({e}), falling back to create_all()")
     Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="FieldScout API", version="0.1.0")
+# Seed trait library if empty
+try:
+    from scripts.seed_trait_library import seed_if_empty
+    db_gen = get_db()
+    db = next(db_gen)
+    seed_if_empty(db)
+    db.close()
+except Exception as e:
+    logger.warning(f"Trait library seed skipped: {e}")
+
+app = FastAPI(title="FieldScout API", version="0.2.0")
 
 cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",")]
 
@@ -42,6 +51,8 @@ app.include_router(plots.router)
 app.include_router(observations.router)
 app.include_router(stats.router)
 app.include_router(images.router)
+app.include_router(traits.router)
+app.include_router(rounds.router)
 
 
 @app.get("/")

@@ -1,13 +1,20 @@
 import type {
   Trial,
   TrialCreate,
+  TrialCloneRequest,
   TrialStats,
+  TrialTrait,
+  Trait,
+  TraitCreate,
+  ScoringRound,
+  ScoringRoundCreate,
   Plot,
+  PlotAttribute,
   PlotImage,
   APIKey,
   APIKeyCreateResponse,
   Observation,
-  ObservationBulkItem,
+  ObservationBulkCreate,
   PlotImportResponse,
   NextUnscoredResponse,
   HeatmapData,
@@ -44,7 +51,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  // Auth
+  // ─── Auth ────────────────────────────────────────────────────────────────
   register: (email: string, password: string, name: string) =>
     request<AuthResponse>('/auth/register', {
       method: 'POST',
@@ -61,7 +68,7 @@ export const api = {
 
   getMe: () => request<User>('/auth/me'),
 
-  // Trials
+  // ─── Trials ───────────────────────────────────────────────────────────────
   getTrials: () => request<Trial[]>('/trials'),
 
   createTrial: (data: TrialCreate) =>
@@ -76,9 +83,77 @@ export const api = {
   deleteTrial: (id: number) =>
     request<{ success: boolean }>(`/trials/${id}`, { method: 'DELETE' }),
 
-  // Plots
-  getPlots: (trialId: number, params?: { search?: string; scored?: string }) => {
-    const query = params ? `?${new URLSearchParams(params)}` : '';
+  cloneTrial: (id: number, data: TrialCloneRequest) =>
+    request<Trial>(`/trials/${id}/clone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  // ─── Traits ───────────────────────────────────────────────────────────────
+  getTraits: (cropHint?: string) => {
+    const query = cropHint ? `?crop_hint=${encodeURIComponent(cropHint)}` : '';
+    return request<Trait[]>(`/traits${query}`);
+  },
+
+  createTrait: (data: TraitCreate) =>
+    request<Trait>('/traits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  getTrialTraits: (trialId: number) =>
+    request<TrialTrait[]>(`/trials/${trialId}/traits`),
+
+  addTraitToTrial: (trialId: number, traitId: number, displayOrder = 0) =>
+    request<TrialTrait>(`/trials/${trialId}/traits`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trait_id: traitId, display_order: displayOrder }),
+    }),
+
+  bulkAddTraitsToTrial: (trialId: number, traitIds: number[]) =>
+    request<TrialTrait[]>(`/trials/${trialId}/traits/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trait_ids: traitIds }),
+    }),
+
+  removeTraitFromTrial: (trialId: number, traitId: number) =>
+    request<{ success: boolean }>(`/trials/${trialId}/traits/${traitId}`, { method: 'DELETE' }),
+
+  reorderTrialTraits: (trialId: number, orderedTraitIds: number[]) =>
+    request<TrialTrait[]>(`/trials/${trialId}/traits/reorder`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ordered_trait_ids: orderedTraitIds }),
+    }),
+
+  // ─── Scoring Rounds ────────────────────────────────────────────────────────
+  getScoringRounds: (trialId: number) =>
+    request<ScoringRound[]>(`/trials/${trialId}/rounds`),
+
+  createScoringRound: (trialId: number, data: ScoringRoundCreate) =>
+    request<ScoringRound>(`/trials/${trialId}/rounds`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  updateScoringRound: (trialId: number, roundId: number, data: Partial<ScoringRoundCreate>) =>
+    request<ScoringRound>(`/trials/${trialId}/rounds/${roundId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
+
+  deleteScoringRound: (trialId: number, roundId: number) =>
+    request<{ success: boolean }>(`/trials/${trialId}/rounds/${roundId}`, { method: 'DELETE' }),
+
+  // ─── Plots ────────────────────────────────────────────────────────────────
+  getPlots: (trialId: number, params?: { search?: string; scored?: string; round_id?: string; status?: string }) => {
+    const query = params ? `?${new URLSearchParams(params as Record<string, string>)}` : '';
     return request<Plot[]>(`/trials/${trialId}/plots${query}`);
   },
 
@@ -103,21 +178,46 @@ export const api = {
   deletePlot: (trialId: number, plotId: number) =>
     request<{ success: boolean }>(`/trials/${trialId}/plots/${plotId}`, { method: 'DELETE' }),
 
-  getNextUnscored: (trialId: number, plotId: number) =>
-    request<NextUnscoredResponse>(`/trials/${trialId}/plots/${plotId}/next-unscored`),
+  updatePlotStatus: (trialId: number, plotId: number, plotStatus: string) =>
+    request<Plot>(`/trials/${trialId}/plots/${plotId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ plot_status: plotStatus }),
+    }),
 
-  // Observations
-  getObservations: (plotId: number) =>
-    request<Observation[]>(`/plots/${plotId}/observations`),
+  getNextUnscored: (trialId: number, plotId: number, roundId?: number) => {
+    const query = roundId ? `?round_id=${roundId}` : '';
+    return request<NextUnscoredResponse>(`/trials/${trialId}/plots/${plotId}/next-unscored${query}`);
+  },
 
-  saveObservations: (plotId: number, observations: ObservationBulkItem[]) =>
+  // ─── Plot Attributes ──────────────────────────────────────────────────────
+  getPlotAttributes: (plotId: number) =>
+    request<PlotAttribute[]>(`/plots/${plotId}/attributes`),
+
+  setPlotAttribute: (plotId: number, key: string, value: string) =>
+    request<PlotAttribute>(`/plots/${plotId}/attributes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value }),
+    }),
+
+  deletePlotAttribute: (plotId: number, key: string) =>
+    request<{ success: boolean }>(`/plots/${plotId}/attributes/${key}`, { method: 'DELETE' }),
+
+  // ─── Observations ─────────────────────────────────────────────────────────
+  getObservations: (plotId: number, roundId?: number) => {
+    const query = roundId ? `?round_id=${roundId}` : '';
+    return request<Observation[]>(`/plots/${plotId}/observations${query}`);
+  },
+
+  saveObservations: (plotId: number, data: ObservationBulkCreate) =>
     request<Observation[]>(`/plots/${plotId}/observations/bulk`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ observations }),
+      body: JSON.stringify(data),
     }),
 
-  // Images
+  // ─── Images ───────────────────────────────────────────────────────────────
   getImages: (plotId: number, imageType?: 'panicle' | 'full_plant') => {
     const query = imageType ? `?image_type=${imageType}` : '';
     return request<PlotImage[]>(`/plots/${plotId}/images${query}`);
@@ -152,7 +252,7 @@ export const api = {
 
   getImageUrl: (filename: string) => `${API_BASE}/images/${filename}`,
 
-  // API Keys
+  // ─── API Keys ─────────────────────────────────────────────────────────────
   getAPIKeys: () => request<APIKey[]>('/auth/api-keys'),
 
   createAPIKey: (label: string) =>
@@ -165,16 +265,26 @@ export const api = {
   revokeAPIKey: (keyId: number) =>
     request<{ success: boolean }>(`/auth/api-keys/${keyId}`, { method: 'DELETE' }),
 
-  // Stats, Heatmap & Export
-  getStats: (trialId: number) => request<TrialStats>(`/trials/${trialId}/stats`),
+  // ─── Stats, Heatmap & Export ──────────────────────────────────────────────
+  getStats: (trialId: number, roundId?: number) => {
+    const query = roundId ? `?round_id=${roundId}` : '';
+    return request<TrialStats>(`/trials/${trialId}/stats${query}`);
+  },
 
-  getHeatmap: (trialId: number) => request<HeatmapData>(`/trials/${trialId}/heatmap`),
+  getHeatmap: (trialId: number, traitId?: number, roundId?: number) => {
+    const params = new URLSearchParams();
+    if (traitId) params.set('trait_id', String(traitId));
+    if (roundId) params.set('round_id', String(roundId));
+    const query = params.toString() ? `?${params}` : '';
+    return request<HeatmapData>(`/trials/${trialId}/heatmap${query}`);
+  },
 
-  exportCsv: async (trialId: number): Promise<Blob> => {
+  exportCsv: async (trialId: number, roundId?: number): Promise<Blob> => {
     const headers: Record<string, string> = {};
     const token = getToken();
     if (token) headers['Authorization'] = `Bearer ${token}`;
-    const res = await fetch(`${API_BASE}/trials/${trialId}/export`, { headers });
+    const query = roundId ? `?round_id=${roundId}` : '';
+    const res = await fetch(`${API_BASE}/trials/${trialId}/export${query}`, { headers });
     if (!res.ok) throw new Error('Export failed');
     return res.blob();
   },

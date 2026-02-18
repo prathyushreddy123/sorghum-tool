@@ -2,12 +2,24 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { HeatmapCell } from '../types';
 
-const SEVERITY_COLORS: Record<number, string> = {
-  1: '#4CAF50',
-  2: '#8BC34A',
-  3: '#FFC107',
-  4: '#FF9800',
-  5: '#D32F2F',
+// Same categorical palette as HeatmapGrid
+const CATEGORICAL_COLORS: Record<string, string> = {
+  '1': '#4CAF50',
+  '2': '#8BC34A',
+  '3': '#FFC107',
+  '4': '#FF9800',
+  '5': '#D32F2F',
+  '6': '#9C27B0',
+  '7': '#2196F3',
+  '8': '#00BCD4',
+  '9': '#FF5722',
+};
+
+const STATUS_TINT: Record<string, string> = {
+  flagged: '#fecaca',   // red tint
+  skipped: '#f3f4f6',   // gray
+  border: '#e5e7eb',    // lighter gray
+  active: '',
 };
 
 const UNSCORED_COLOR = '#E0E0E0';
@@ -25,7 +37,6 @@ export default function MiniFieldPlan({ trialId, rows, columns, cells }: Props) 
 
   const totalPlots = cells.length;
 
-  // Build grid lookup: grid[row][col] = cell
   const grid: (HeatmapCell | null)[][] = [];
   for (let r = 1; r <= rows; r++) {
     const row: (HeatmapCell | null)[] = [];
@@ -36,8 +47,13 @@ export default function MiniFieldPlan({ trialId, rows, columns, cells }: Props) 
   }
 
   function getCellColor(cell: HeatmapCell | null): string {
-    if (!cell || cell.ergot_severity === null) return UNSCORED_COLOR;
-    return SEVERITY_COLORS[cell.ergot_severity] || UNSCORED_COLOR;
+    if (!cell) return UNSCORED_COLOR;
+    // Status overrides if not active
+    if (cell.plot_status !== 'active' && !cell.value) {
+      return STATUS_TINT[cell.plot_status] || UNSCORED_COLOR;
+    }
+    if (!cell.value) return UNSCORED_COLOR;
+    return CATEGORICAL_COLORS[cell.value] || '#90CAF9';
   }
 
   function handleCellClick(cell: HeatmapCell | null) {
@@ -49,7 +65,6 @@ export default function MiniFieldPlan({ trialId, rows, columns, cells }: Props) 
     }
   }
 
-  // Determine display mode
   const mode: 'full' | 'abbrev' | 'dot' = totalPlots < 30 ? 'full' : totalPlots <= 100 ? 'abbrev' : 'dot';
 
   return (
@@ -61,8 +76,9 @@ export default function MiniFieldPlan({ trialId, rows, columns, cells }: Props) 
               <tr key={ri}>
                 {row.map((cell, ci) => {
                   const bg = getCellColor(cell);
-                  const scored = cell && cell.ergot_severity !== null;
-                  const useLightText = scored && cell.ergot_severity! >= 4;
+                  const hasValue = cell?.value != null;
+                  const isHighValue = cell?.numeric_value != null && cell.numeric_value >= 4;
+                  const useLightText = hasValue && isHighValue;
 
                   if (mode === 'dot') {
                     return (
@@ -116,7 +132,7 @@ export default function MiniFieldPlan({ trialId, rows, columns, cells }: Props) 
           </div>
           <p className="text-xs text-gray-500">{popup.genotype}</p>
           <p className="text-xs text-gray-500 mb-2">
-            Severity: {popup.ergot_severity !== null ? popup.ergot_severity : 'Not scored'}
+            Value: {popup.value !== null ? popup.value : 'Not scored'} · {popup.plot_status}
           </p>
           <button
             onClick={() => navigate(`/trials/${trialId}/collect/${popup.plot_pk}`)}

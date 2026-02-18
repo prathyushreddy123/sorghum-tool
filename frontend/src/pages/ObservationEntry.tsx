@@ -8,6 +8,7 @@ import { parseTrait } from '../types';
 import TraitInput from '../components/TraitInput';
 import ImageCapture from '../components/ImageCapture';
 import Snackbar from '../components/Snackbar';
+import QRScannerModal from '../components/QRScannerModal';
 import { useWeather } from '../hooks/useWeather';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
@@ -49,6 +50,9 @@ export default function ObservationEntry() {
 
   // Online status
   const { online, refreshPending } = useOnlineStatus();
+
+  // QR scanner
+  const [showScanner, setShowScanner] = useState(false);
 
   // Swipe gesture
   const touchStartX = useRef<number | null>(null);
@@ -289,6 +293,39 @@ export default function ObservationEntry() {
     }
   }
 
+  function handleScanResult(raw: string) {
+    const text = raw.trim();
+
+    // 1. URL containing /collect/{id} or /plots/{id}
+    const urlMatch = text.match(/\/(?:collect|plots)\/(\d+)/);
+    if (urlMatch) {
+      const id = Number(urlMatch[1]);
+      const idx = allPlots.findIndex(p => p.id === id);
+      if (idx >= 0) { goToPlot(idx); return; }
+    }
+
+    // 2. R{n}C{n} format (e.g. "R3C5" or "r3c5")
+    const rcMatch = text.match(/^r(\d+)c(\d+)$/i);
+    if (rcMatch) {
+      const row = Number(rcMatch[1]);
+      const col = Number(rcMatch[2]);
+      const idx = allPlots.findIndex(p => p.row === row && p.column === col);
+      if (idx >= 0) { goToPlot(idx); return; }
+      setError(`No plot found at R${row}C${col}`);
+      return;
+    }
+
+    // 3. Plain number → try plot_id then 1-based walk index
+    const num = Number(text);
+    if (!isNaN(num) && text !== '') {
+      let idx = allPlots.findIndex(p => p.id === num);
+      if (idx < 0 && num >= 1 && num <= allPlots.length) idx = num - 1;
+      if (idx >= 0) { goToPlot(idx); return; }
+    }
+
+    setError(`Plot not found for scanned code: "${text}"`);
+  }
+
   if (loading) return <p className="text-neutral text-center py-8">Loading...</p>;
   if (!plot) return <p className="text-red-600 text-center py-8">{error || 'Plot not found'}</p>;
 
@@ -344,6 +381,27 @@ export default function ObservationEntry() {
                 {plotStatus}
               </span>
             )}
+            <button
+              onClick={() => setShowScanner(true)}
+              className="ml-auto text-gray-400 hover:text-green-700 transition-colors min-w-[32px] min-h-[32px] flex items-center justify-center"
+              title="Scan QR / barcode to jump to plot"
+              aria-label="Scan QR code"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="5" height="5" rx="1" />
+                <rect x="16" y="3" width="5" height="5" rx="1" />
+                <rect x="3" y="16" width="5" height="5" rx="1" />
+                <path d="M21 16h-3a2 2 0 0 0-2 2v3" />
+                <path d="M21 21v.01" />
+                <path d="M12 7v3a2 2 0 0 1-2 2H7" />
+                <path d="M3 12h.01" />
+                <path d="M12 3h.01" />
+                <path d="M12 16v.01" />
+                <path d="M16 12h1" />
+                <path d="M21 12v.01" />
+                <path d="M12 21v-1" />
+              </svg>
+            </button>
           </div>
         </div>
 
@@ -485,6 +543,13 @@ export default function ObservationEntry() {
           </button>
         </div>
       </div>
+
+      {/* QR scanner */}
+      <QRScannerModal
+        open={showScanner}
+        onClose={() => setShowScanner(false)}
+        onScan={handleScanResult}
+      />
 
       {/* Walk mode picker popover */}
       {showWalkPicker && (

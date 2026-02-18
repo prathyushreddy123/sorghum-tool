@@ -347,15 +347,15 @@ function TraitStatCard({ stat }: { stat: TraitStatItem }) {
         <span className="text-xs text-gray-400">n={stat.count}</span>
       </div>
 
-      {isNumeric && stat.mean !== undefined && (
+      {isNumeric && stat.mean != null && (
         <div className="flex items-baseline gap-3">
           <div>
             <span className="text-2xl font-bold text-primary">{stat.mean.toFixed(1)}</span>
-            {stat.sd !== undefined && (
+            {stat.sd != null && (
               <span className="text-sm text-gray-400 ml-1">± {stat.sd.toFixed(1)}</span>
             )}
           </div>
-          {stat.min_value !== undefined && stat.max_value !== undefined && (
+          {stat.min_value != null && stat.max_value != null && (
             <span className="text-xs text-gray-400">
               [{stat.min_value.toFixed(1)} – {stat.max_value.toFixed(1)}]
             </span>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import { createTrial as offlineCreateTrial, getTraits as offlineGetTraits } from '../db/offlineApi';
 import type { Trait, WalkMode } from '../types';
 import TraitBuilderModal from '../components/TraitBuilderModal';
 
@@ -90,7 +91,8 @@ export default function CreateTrial() {
     if (step !== 'traits') return;
     setTraitsLoading(true);
     setTraitSearch('');
-    api.getTraits()
+    setError('');
+    offlineGetTraits()
       .then(traits => {
         setAllTraits(traits);
         const preSelected = traits
@@ -98,7 +100,7 @@ export default function CreateTrial() {
           .map(t => t.id);
         setSelectedTraitIds(preSelected);
       })
-      .catch(() => setError('Failed to load traits'))
+      .catch(() => setError('Failed to load traits. Check your connection.'))
       .finally(() => setTraitsLoading(false));
   }, [step, effectiveCrop]);
 
@@ -112,7 +114,7 @@ export default function CreateTrial() {
     setSaving(true);
     setError('');
     try {
-      const trial = await api.createTrial({
+      const trial = await offlineCreateTrial({
         name: name.trim(),
         crop: effectiveCrop || 'custom',
         location: location.trim(),
@@ -122,7 +124,12 @@ export default function CreateTrial() {
         trait_ids: selectedTraitIds,
         first_round_name: firstRoundName.trim() || 'Round 1',
       });
-      navigate(`/trials/${trial.id}`);
+      if (trial.id < 0) {
+        // Created offline — go to trial list; badge will show "Pending sync"
+        navigate('/');
+      } else {
+        navigate(`/trials/${trial.id}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create trial');
     } finally {
@@ -386,7 +393,11 @@ export default function CreateTrial() {
 
             {traitsLoading && <p className="text-center text-gray-400 py-4">Loading traits...</p>}
 
-            {!traitsLoading && filtered.length === 0 && (
+            {!traitsLoading && error && (
+              <p className="text-center text-red-500 text-sm py-4">{error}</p>
+            )}
+
+            {!traitsLoading && !error && filtered.length === 0 && (
               <p className="text-center text-gray-400 py-4">
                 {traitSearch ? 'No traits match your search.' : 'No traits available.'}
               </p>

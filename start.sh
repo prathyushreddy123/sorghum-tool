@@ -21,7 +21,7 @@ echo "Starting FieldScout..."
 
 # 1. Backend (FastAPI)
 cd "$DIR/backend"
-nohup "$DIR/backend/venv/bin/uvicorn" main:app --reload --host 0.0.0.0 --port 8000 \
+nohup "$HOME/.local/bin/uvicorn" main:app --reload --host 0.0.0.0 --port 8000 \
   > "$LOG_DIR/sorghum-backend.log" 2>&1 &
 echo $! > "$LOG_DIR/sorghum-backend.pid"
 echo "  Backend started on :8000 (PID $!)"

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api/client';
+import { createTrait as offlineCreateTrait } from '../db/offlineApi';
 import type { Trait, TraitCreate, TraitDataType } from '../types';
 
 interface Props {
@@ -123,7 +124,7 @@ export default function TraitBuilderModal({ open, onClose, onSaved, editTrait, c
     try {
       const saved = editTrait
         ? await api.updateTrait(editTrait.id, data)
-        : await api.createTrait(data);
+        : await offlineCreateTrait(data);
       onSaved(saved);
       onClose();
     } catch (e) {

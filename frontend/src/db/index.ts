@@ -86,7 +86,9 @@ export interface CachedObservation {
 
 export type SyncAction =
   | { type: 'saveObservations'; plotId: number; data: unknown }
-  | { type: 'updatePlotStatus'; trialId: number; plotId: number; status: string };
+  | { type: 'updatePlotStatus'; trialId: number; plotId: number; status: string }
+  | { type: 'createTrait'; data: unknown; tempId: number }
+  | { type: 'createTrial'; data: unknown; tempId: number };
 
 export interface PendingSync {
   id?: number;

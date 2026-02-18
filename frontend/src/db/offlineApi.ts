@@ -2,7 +2,7 @@ import { db } from './index';
 import type { PendingSync } from './index';
 import { api } from '../api/client';
 import type {
-  Trial, Plot, Trait, TrialTrait, ScoringRound,
+  Trial, Plot, Trait, TraitCreate, TrialCreate, TrialTrait, ScoringRound,
   Observation, ObservationBulkCreate,
 } from '../types';
 
@@ -222,6 +222,107 @@ export async function updatePlotStatus(
   return cached as Plot;
 }
 
+// ─── Trait creation (offline-capable) ────────────────────────────────────────
+
+export async function createTrait(data: TraitCreate): Promise<Trait> {
+  if (isOnline()) {
+    try {
+      const trait = await api.createTrait(data);
+      await db.traits.put({ ...trait, _cachedAt: Date.now() });
+      return trait;
+    } catch { /* fall through to offline queue */ }
+  }
+
+  const tempId = -(Date.now());
+  const localTrait: Trait = {
+    id: tempId,
+    name: data.name,
+    label: data.label,
+    data_type: data.data_type,
+    unit: data.unit ?? null,
+    min_value: data.min_value ?? null,
+    max_value: data.max_value ?? null,
+    categories: data.categories ?? null,
+    category_labels: data.category_labels ?? null,
+    description: data.description ?? null,
+    crop_hint: data.crop_hint ?? null,
+    is_system: false,
+  };
+
+  await db.traits.put({ ...localTrait, _cachedAt: Date.now() });
+  await db.pendingSync.add({
+    action: { type: 'createTrait', data, tempId },
+    createdAt: Date.now(),
+    retries: 0,
+  });
+
+  return localTrait;
+}
+
+// ─── Trial creation (offline-capable) ────────────────────────────────────────
+
+export async function createTrial(data: TrialCreate): Promise<Trial> {
+  if (isOnline()) {
+    try {
+      const trial = await api.createTrial(data);
+      await db.trials.put({ ...trial, _cachedAt: Date.now() });
+      return trial;
+    } catch { /* fall through to offline queue */ }
+  }
+
+  const now = Date.now();
+  const tempId = -now;
+
+  const localTrial: Trial = {
+    id: tempId,
+    name: data.name,
+    crop: data.crop ?? 'custom',
+    location: data.location,
+    start_date: data.start_date,
+    end_date: data.end_date ?? null,
+    walk_mode: data.walk_mode ?? 'serpentine',
+    created_at: new Date().toISOString(),
+    plot_count: 0,
+    scored_count: 0,
+  };
+
+  await db.trials.put({ ...localTrial, _cachedAt: now });
+
+  // Local scoring round
+  const localRound: ScoringRound = {
+    id: -(now + 1),
+    trial_id: tempId,
+    name: data.first_round_name ?? 'Round 1',
+    scored_at: null,
+    notes: null,
+    created_at: new Date().toISOString(),
+    scored_plots: 0,
+    total_plots: 0,
+  };
+  await db.scoringRounds.put({ ...localRound, _cachedAt: now });
+
+  // Local trial-trait associations
+  if (data.trait_ids?.length) {
+    for (let i = 0; i < data.trait_ids.length; i++) {
+      await db.trialTraits.put({
+        id: -(now + i + 2),
+        trial_id: tempId,
+        trait_id: data.trait_ids[i],
+        display_order: i,
+        _cachedAt: now,
+      });
+    }
+  }
+
+  await db.pendingSync.add({
+    action: { type: 'createTrial', data, tempId },
+    createdAt: now,
+    retries: 0,
+  });
+
+  return localTrial;
+}
+
 // ─── Sync engine ─────────────────────────────────────────────────────────────
 
 export async function getPendingCount(): Promise<number> {
@@ -264,6 +365,64 @@ async function replayAction(item: PendingSync): Promise<void> {
     }
     case 'updatePlotStatus': {
       await api.updatePlotStatus(action.trialId, action.plotId, action.status);
+      break;
+    }
+    case 'createTrait': {
+      const realTrait = await api.createTrait(action.data as TraitCreate);
+      await db.traits.put({ ...realTrait, _cachedAt: Date.now() });
+      await db.traits.delete(action.tempId);
+
+      // Patch any pending createTrial actions that reference this temp trait ID
+      const pending = await db.pendingSync.toArray();
+      for (const p of pending) {
+        if (p.action.type === 'createTrial') {
+          const trialData = p.action.data as TrialCreate;
+          if (trialData.trait_ids?.includes(action.tempId)) {
+            const updatedTraitIds = trialData.trait_ids.map(id =>
+              id === action.tempId ? realTrait.id : id
+            );
+            await db.pendingSync.update(p.id!, {
+              action: { ...p.action, data: { ...trialData, trait_ids: updatedTraitIds } },
+            });
+          }
+        }
+      }
+
+      // Also update cached trialTrait entries that reference the temp trait ID
+      const tempTTs = await db.trialTraits.where('trait_id').equals(action.tempId).toArray();
+      for (const tt of tempTTs) {
+        await db.trialTraits.update(tt.id, { trait_id: realTrait.id });
+      }
+      break;
+    }
+    case 'createTrial': {
+      const realTrial = await api.createTrial(action.data as TrialCreate);
+      const now = Date.now();
+      await db.trials.put({ ...realTrial, _cachedAt: now });
+      await db.trials.delete(action.tempId);
+
+      // Clean up temp local cache entries
+      const tempRoundKeys = await db.scoringRounds
+        .where('trial_id').equals(action.tempId).primaryKeys();
+      await db.scoringRounds.bulkDelete(tempRoundKeys);
+
+      const tempTTKeys = await db.trialTraits
+        .where('trial_id').equals(action.tempId).primaryKeys();
+      await db.trialTraits.bulkDelete(tempTTKeys);
+
+      // Populate cache with real data from server
+      const [rounds, trialTraits] = await Promise.all([
+        api.getScoringRounds(realTrial.id),
+        api.getTrialTraits(realTrial.id),
+      ]);
+      await db.scoringRounds.bulkPut(rounds.map(r => ({ ...r, _cachedAt: now })));
+      for (const tt of trialTraits) {
+        await db.trialTraits.put({
+          id: tt.id, trial_id: tt.trial_id, trait_id: tt.trait_id,
+          display_order: tt.display_order, _cachedAt: now,
+        });
+        await db.traits.put({ ...tt.trait, _cachedAt: now });
+      }
       break;
     }
   }

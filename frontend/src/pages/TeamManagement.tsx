@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeam } from '../contexts/TeamContext';
-import type { Team } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
 
 export default function TeamManagement() {

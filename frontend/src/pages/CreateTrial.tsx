@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api/client';
 import { createTrial as offlineCreateTrial, getTraits as offlineGetTraits } from '../db/offlineApi';
 import type { Trait, WalkMode } from '../types';
 import { useTeam } from '../contexts/TeamContext';

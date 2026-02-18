@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '../api/client';
+import * as offlineApi from '../db/offlineApi';
 
 export default function CollectRedirect() {
   const { trialId } = useParams<{ trialId: string }>();
@@ -15,29 +15,25 @@ export default function CollectRedirect() {
 
     async function redirect() {
       try {
-        // Get first round if not specified
+        // Ensure trial data is cached for offline use
+        await offlineApi.prefetchTrialForOffline(id).catch(() => {});
+
         let roundId: number | undefined = roundIdParam ? Number(roundIdParam) : undefined;
         if (!roundId) {
-          const rounds = await api.getScoringRounds(id);
+          const rounds = await offlineApi.getScoringRounds(id);
           if (rounds.length > 0) roundId = rounds[0].id;
         }
 
         const roundQuery = roundId ? `?round_id=${roundId}` : '';
 
-        // Find first unscored active plot
-        const unscored = await api.getPlots(id, {
-          scored: 'false',
-          status: 'active',
-          ...(roundId ? { round_id: String(roundId) } : {}),
-        });
+        const allPlots = await offlineApi.getPlots(id);
 
+        const unscored = allPlots.filter((p) => p.plot_status === 'active' && !p.has_observations);
         if (unscored.length > 0) {
           navigate(`/trials/${id}/collect/${unscored[0].id}${roundQuery}`, { replace: true });
           return;
         }
 
-        // All scored — go to first plot
-        const allPlots = await api.getPlots(id);
         if (allPlots.length > 0) {
           navigate(`/trials/${id}/collect/${allPlots[0].id}${roundQuery}`, { replace: true });
         } else {

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import * as offlineApi from '../db/offlineApi';
 import type { Trial, TrialStats, HeatmapData, ScoringRound, TraitStatItem, WalkMode } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import SeverityHistogram from '../components/SeverityHistogram';
@@ -25,6 +26,8 @@ export default function TrialDashboard() {
   const [cloneRoundName, setCloneRoundName] = useState('Round 1');
   const [cloning, setCloning] = useState(false);
   const [showWalkPicker, setShowWalkPicker] = useState(false);
+  const [offlineStatus, setOfflineStatus] = useState<'idle' | 'downloading' | 'ready'>('idle');
+  const [offlineCached, setOfflineCached] = useState(false);
 
   const id = Number(trialId);
 
@@ -32,20 +35,23 @@ export default function TrialDashboard() {
     if (!id) return;
     setLoading(true);
     Promise.all([
-      api.getTrial(id),
-      api.getStats(id, roundId),
-      api.getHeatmap(id, undefined, roundId),
-      api.getScoringRounds(id),
+      offlineApi.getTrial(id),
+      api.getStats(id, roundId).catch(() => null),
+      api.getHeatmap(id, undefined, roundId).catch(() => null),
+      offlineApi.getScoringRounds(id),
     ])
       .then(([t, s, h, r]) => {
         setTrial(t);
-        setStats(s);
-        setHeatmap(h);
+        if (s) setStats(s);
+        if (h) setHeatmap(h);
         setRounds(r);
-        // Auto-select first round if not yet selected
         if (!roundId && r.length > 0) {
           setSelectedRoundId(r[0].id);
         }
+        // Background prefetch: cache plots + traits so offline collection works
+        offlineApi.prefetchTrialForOffline(id).then(() => {
+          setOfflineCached(true);
+        }).catch(() => {});
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
@@ -99,6 +105,22 @@ export default function TrialDashboard() {
     } finally {
       setCloning(false);
       setShowClone(false);
+    }
+  }
+
+  useEffect(() => {
+    offlineApi.isTrialCached(id).then(setOfflineCached);
+  }, [id]);
+
+  async function handleDownloadOffline() {
+    setOfflineStatus('downloading');
+    try {
+      await offlineApi.prefetchTrialForOffline(id);
+      setOfflineStatus('ready');
+      setOfflineCached(true);
+    } catch {
+      setOfflineStatus('idle');
+      setError('Failed to download trial for offline use');
     }
   }
 
@@ -266,6 +288,22 @@ export default function TrialDashboard() {
         {stats.scored_plots > 0 && (
           <ExportButton trialId={trial.id} trialName={trial.name} roundId={selectedRoundId} />
         )}
+        {/* Offline download */}
+        <button
+          onClick={handleDownloadOffline}
+          disabled={offlineStatus === 'downloading'}
+          className={`w-full py-3 text-center rounded-lg font-semibold text-sm min-h-[44px] border transition-colors ${
+            offlineCached || offlineStatus === 'ready'
+              ? 'bg-green-50 text-green-700 border-green-300'
+              : 'bg-card text-neutral border-gray-300 hover:bg-gray-50'
+          } disabled:opacity-50`}
+        >
+          {offlineStatus === 'downloading'
+            ? 'Downloading...'
+            : offlineCached || offlineStatus === 'ready'
+              ? 'Available Offline ✓'
+              : 'Download for Offline Use'}
+        </button>
         <button
           onClick={() => setShowDelete(true)}
           className="w-full py-3 text-error text-center rounded-lg font-medium text-sm min-h-[44px] border border-gray-200 cursor-pointer hover:bg-red-50 transition-colors"

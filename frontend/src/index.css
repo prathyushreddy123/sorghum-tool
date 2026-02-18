@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+/* ── Light theme (default) ───────────────────────────────────────────────── */
 @theme {
   --color-primary: #2E7D32;
   --color-primary-dark: #1B5E20;
@@ -9,6 +10,8 @@
   --color-neutral: #616161;
   --color-background: #FAFAFA;
   --color-card: #FFFFFF;
+  --color-surface: #F9FAFB;
+  --color-border: #E5E7EB;
 }
 
 body {
@@ -17,9 +20,9 @@ body {
   background-color: var(--color-background);
   color: #213547;
   min-width: 320px;
+  transition: background-color 0.2s, color 0.2s;
 }
 
-/* Global cursor styles for interactive elements */
 button,
 a,
 [role="button"],
@@ -34,3 +37,120 @@ a:disabled,
 [disabled] {
   cursor: not-allowed;
 }
+
+/* ── Dark theme ──────────────────────────────────────────────────────────── */
+html.dark {
+  --color-primary: #4CAF50;
+  --color-primary-dark: #388E3C;
+  --color-primary-light: #1B5E20;
+  --color-warning: #FFD54F;
+  --color-error: #EF5350;
+  --color-neutral: #D1D5DB;
+  --color-background: #0F172A;
+  --color-card: #1E293B;
+  --color-surface: #334155;
+  --color-border: #475569;
+  color-scheme: dark;
+}
+
+html.dark body {
+  color: #E2E8F0;
+}
+
+/* Remap common Tailwind grays in dark mode */
+html.dark .bg-white { background-color: var(--color-card); }
+html.dark .bg-gray-50 { background-color: #1E293B; }
+html.dark .bg-gray-100 { background-color: #334155; }
+html.dark .bg-gray-200 { background-color: #475569; }
+
+html.dark .text-gray-400 { color: #94A3B8; }
+html.dark .text-gray-500 { color: #94A3B8; }
+html.dark .text-gray-600 { color: #CBD5E1; }
+html.dark .text-gray-700 { color: #E2E8F0; }
+
+html.dark .border-gray-100 { border-color: #334155; }
+html.dark .border-gray-200 { border-color: #475569; }
+html.dark .border-gray-300 { border-color: #475569; }
+
+html.dark .bg-green-50 { background-color: #14532D33; }
+html.dark .bg-blue-50 { background-color: #1E3A5F44; }
+html.dark .bg-red-50 { background-color: #7F1D1D33; }
+html.dark .bg-yellow-100 { background-color: #713F1233; }
+
+html.dark .text-blue-500 { color: #60A5FA; }
+html.dark .text-blue-600 { color: #60A5FA; }
+html.dark .text-blue-700 { color: #93C5FD; }
+
+html.dark .border-blue-200 { border-color: #1E40AF55; }
+html.dark .border-green-600 { border-color: #4CAF50; }
+html.dark .border-green-400 { border-color: #4CAF5088; }
+
+html.dark .shadow { box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
+html.dark .shadow-sm { box-shadow: 0 1px 2px rgba(0,0,0,0.3); }
+html.dark .shadow-md { box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
+html.dark .shadow-lg { box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  background-color: #1E293B;
+  color: #E2E8F0;
+  border-color: #475569;
+}
+
+html.dark pre {
+  background-color: #1E293B !important;
+  color: #E2E8F0;
+}
+
+html.dark code {
+  background-color: #334155;
+  color: #E2E8F0;
+}
+
+/* ── Sun / High-Contrast theme ───────────────────────────────────────────── */
+html.sun {
+  --color-primary: #1B5E20;
+  --color-primary-dark: #0D3B0E;
+  --color-primary-light: #4CAF50;
+  --color-warning: #E65100;
+  --color-error: #B71C1C;
+  --color-neutral: #000000;
+  --color-background: #FFFFFF;
+  --color-card: #FFFFFF;
+  --color-surface: #FFFFFF;
+  --color-border: #000000;
+}
+
+html.sun body {
+  color: #000000;
+  font-weight: 500;
+}
+
+html.sun .text-gray-400 { color: #374151; }
+html.sun .text-gray-500 { color: #1F2937; }
+html.sun .text-gray-600 { color: #111827; }
+html.sun .text-gray-700 { color: #000000; }
+
+html.sun .border-gray-100,
+html.sun .border-gray-200,
+html.sun .border-gray-300 {
+  border-color: #374151;
+}
+
+html.sun input,
+html.sun textarea,
+html.sun select {
+  border-color: #374151;
+  border-width: 2px;
+  font-weight: 600;
+}
+
+html.sun .shadow,
+html.sun .shadow-sm,
+html.sun .shadow-md {
+  box-shadow: 0 0 0 1px #00000044;
+}
+
+html.sun .text-sm { font-size: 0.9375rem; }
+html.sun .text-xs { font-size: 0.8125rem; }

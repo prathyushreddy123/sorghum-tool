@@ -1,12 +1,21 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../hooks/useTheme';
+import type { Theme } from '../hooks/useTheme';
 import type { APIKey, Trait } from '../types';
 import TraitBuilderModal from '../components/TraitBuilderModal';
 import ConfirmDialog from '../components/ConfirmDialog';
 
+const THEME_OPTIONS: { mode: Theme; label: string; desc: string; icon: string }[] = [
+  { mode: 'light', label: 'Light', desc: 'Default light theme', icon: '☀️' },
+  { mode: 'dark', label: 'Dark', desc: 'Low-light & indoor use', icon: '🌙' },
+  { mode: 'sun', label: 'Sun / Field', desc: 'High contrast for bright sunlight', icon: '🔆' },
+];
+
 export default function Settings() {
   const { user, logout } = useAuth();
+  const { theme, setTheme } = useTheme();
   const [keys, setKeys] = useState<APIKey[]>([]);
   const [label, setLabel] = useState('');
   const [newKey, setNewKey] = useState<string | null>(null);
@@ -102,6 +111,29 @@ export default function Settings() {
           </button>
         </div>
       )}
+
+      {/* Theme selector */}
+      <div className="mb-6 bg-card rounded-lg p-4 shadow border border-gray-100">
+        <h3 className="text-lg font-semibold text-neutral mb-2">Appearance</h3>
+        <p className="text-xs text-gray-400 mb-3">Choose a display mode for field conditions</p>
+        <div className="grid grid-cols-3 gap-2">
+          {THEME_OPTIONS.map(({ mode, label, desc, icon }) => (
+            <button
+              key={mode}
+              onClick={() => setTheme(mode)}
+              className={`p-3 rounded-xl border-2 text-center transition-all ${
+                theme === mode
+                  ? 'border-primary bg-green-50 dark:bg-green-900/20'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+            >
+              <div className="text-2xl mb-1">{icon}</div>
+              <div className={`text-sm font-semibold ${theme === mode ? 'text-primary' : 'text-neutral'}`}>{label}</div>
+              <div className="text-[10px] text-gray-400 leading-tight mt-0.5">{desc}</div>
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Trait Manager */}
       <div className="mb-6">

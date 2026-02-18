@@ -2,12 +2,14 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import type { TouchEvent } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
+import * as offlineApi from '../db/offlineApi';
 import type { Plot, PlotImage, ScoringRound, TrialTrait, WalkMode } from '../types';
 import { parseTrait } from '../types';
 import TraitInput from '../components/TraitInput';
 import ImageCapture from '../components/ImageCapture';
 import Snackbar from '../components/Snackbar';
 import { useWeather } from '../hooks/useWeather';
+import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
 export default function ObservationEntry() {
   const { trialId, plotId } = useParams<{ trialId: string; plotId: string }>();
@@ -45,6 +47,9 @@ export default function ObservationEntry() {
   const [saving, setSaving] = useState(false);
   const [snackbar, setSnackbar] = useState<{ message: string; undoPlotId?: number; undoValues?: Record<number, string> } | null>(null);
 
+  // Online status
+  const { online, refreshPending } = useOnlineStatus();
+
   // Swipe gesture
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
@@ -54,14 +59,14 @@ export default function ObservationEntry() {
     setError('');
     setAiResult(null);
     try {
-      const trial = await api.getTrial(tId);
+      const trial = await offlineApi.getTrial(tId);
       const wm = trial.walk_mode || 'row_by_row';
       setWalkMode(wm);
 
       const [plots, traits, roundsList] = await Promise.all([
-        api.getPlots(tId, { walk_mode: wm }),
-        api.getTrialTraits(tId),
-        api.getScoringRounds(tId),
+        offlineApi.getPlots(tId, { walk_mode: wm }),
+        offlineApi.getTrialTraits(tId),
+        offlineApi.getScoringRounds(tId),
       ]);
 
       setAllPlots(plots);
@@ -82,7 +87,7 @@ export default function ObservationEntry() {
       setSelectedRoundId(activeRoundId);
 
       // Load existing observations for this plot + round
-      const obs = await api.getObservations(pId, activeRoundId ?? undefined);
+      const obs = await offlineApi.getObservations(pId, activeRoundId ?? undefined);
       const vals: Record<number, string> = {};
       for (const o of obs) {
         if (o.trait_id) vals[o.trait_id] = o.value;
@@ -96,7 +101,7 @@ export default function ObservationEntry() {
         const activeIdx = roundIds.indexOf(activeRoundId);
         const prevRoundId = activeIdx > 0 ? roundIds[activeIdx - 1] : null;
         if (prevRoundId) {
-          const prevObs = await api.getObservations(pId, prevRoundId);
+          const prevObs = await offlineApi.getObservations(pId, prevRoundId);
           for (const o of prevObs) {
             if (o.trait_id) prevVals[o.trait_id] = o.value;
           }
@@ -104,7 +109,12 @@ export default function ObservationEntry() {
       }
       setPrevValues(prevVals);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load');
+      const msg = e instanceof Error ? e.message : 'Failed to load';
+      if (!navigator.onLine && msg.includes('Offline')) {
+        setError('No cached data available. Please go online, visit the trial dashboard, then try again.');
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -143,8 +153,9 @@ export default function ObservationEntry() {
   async function handleFlagPlot(status: string) {
     const newStatus = plotStatus === status ? 'active' : status;
     try {
-      await api.updatePlotStatus(tId, pId, newStatus);
+      await offlineApi.updatePlotStatus(tId, pId, newStatus);
       setPlotStatus(newStatus);
+      refreshPending();
     } catch {
       setError('Failed to update plot status');
     }
@@ -172,20 +183,35 @@ export default function ObservationEntry() {
     setSaving(true);
     setError('');
     try {
-      await api.saveObservations(pId, {
+      await offlineApi.saveObservations(pId, {
         scoring_round_id: selectedRoundId ?? undefined,
         observations,
       });
+      refreshPending();
 
       const roundName = rounds.find(r => r.id === selectedRoundId)?.name || '';
-      const savedMsg = `Saved Plot ${currentIndex + 1}${roundName ? ` · ${roundName}` : ''}`;
+      const offlineTag = !online ? ' (offline)' : '';
+      const savedMsg = `Saved Plot ${currentIndex + 1}${roundName ? ` · ${roundName}` : ''}${offlineTag}`;
 
       if (advance) {
-        const result = await api.getNextUnscored(tId, pId, selectedRoundId ?? undefined);
-        if (result.next_plot_id && result.next_plot_id !== pId) {
+        // Offline: simple sequential advance; Online: use server next-unscored
+        let nextPlotId: number | null = null;
+        if (online) {
+          try {
+            const result = await api.getNextUnscored(tId, pId, selectedRoundId ?? undefined);
+            nextPlotId = result.next_plot_id;
+          } catch {
+            // Fallback to local next
+          }
+        }
+        if (!nextPlotId && currentIndex < allPlots.length - 1) {
+          nextPlotId = allPlots[currentIndex + 1].id;
+        }
+
+        if (nextPlotId && nextPlotId !== pId) {
           setSnackbar({ message: savedMsg, undoPlotId: pId, undoValues });
           const roundQuery = selectedRoundId ? `?round_id=${selectedRoundId}` : '';
-          navigate(`/trials/${tId}/collect/${result.next_plot_id}${roundQuery}`, { replace: true });
+          navigate(`/trials/${tId}/collect/${nextPlotId}${roundQuery}`, { replace: true });
         } else {
           setSnackbar({ message: 'All plots scored for this round!' });
         }

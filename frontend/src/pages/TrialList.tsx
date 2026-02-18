@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
+import * as offlineApi from '../db/offlineApi';
 import type { Trial } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
 
@@ -12,7 +13,7 @@ export default function TrialList() {
   const [deleteLoading, setDeleteLoading] = useState(false);
 
   useEffect(() => {
-    api.getTrials()
+    offlineApi.getTrials()
       .then(setTrials)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));

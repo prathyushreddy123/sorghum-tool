@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
+import * as offlineApi from '../db/offlineApi';
 import type { Plot, TrialStats, PlotStatus } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import BarcodeScanner from '../components/BarcodeScanner';
@@ -56,7 +57,7 @@ export default function PlotList() {
     if (filter === 'scored') params.scored = 'true';
     if (filter === 'unscored') params.scored = 'false';
 
-    api.getPlots(id, params)
+    offlineApi.getPlots(id, params)
       .then(setPlots)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));

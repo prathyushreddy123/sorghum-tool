@@ -24,6 +24,8 @@ async def _gemini_generate(client: genai.Client, contents: list) -> str:
                 model=GEMINI_MODEL,
                 contents=contents,
             )
+            if not response.text:
+                raise ValueError(f"Empty response from Gemini (finish_reason: {getattr(response.candidates[0], 'finish_reason', 'unknown') if response.candidates else 'no candidates'})")
             return response.text
         except Exception as e:
             if "429" in str(e) and attempt < MAX_RETRIES - 1:
@@ -235,13 +237,22 @@ async def predict_severity_groq(image_bytes: bytes, mime_type: str) -> dict | No
 async def predict_severity(image_bytes: bytes, mime_type: str) -> dict | None:
     """Try Gemini first, fall back to Groq. Returns None if both fail."""
     if not AI_CLASSIFICATION_ENABLED:
+        logger.info("AI classification disabled")
         return None
+
+    logger.info(f"Predicting severity: image={len(image_bytes)} bytes, mime={mime_type}, gemini_key={'set' if GEMINI_API_KEY else 'MISSING'}, groq_key={'set' if GROQ_API_KEY else 'MISSING'}")
 
     result = await predict_severity_gemini(image_bytes, mime_type)
     if result is not None:
+        logger.info(f"Gemini result: severity={result.get('severity')}, confidence={result.get('confidence')}")
         return result
 
-    return await predict_severity_groq(image_bytes, mime_type)
+    result = await predict_severity_groq(image_bytes, mime_type)
+    if result is not None:
+        logger.info(f"Groq result: severity={result.get('severity')}, confidence={result.get('confidence')}")
+    else:
+        logger.error("Both Gemini and Groq failed for severity prediction")
+    return result
 
 
 # ---------------------------------------------------------------------------

@@ -63,11 +63,13 @@ else
   echo "Using SECRET_KEY from .env.deploy: ${SECRET_KEY:0:8}..."
 fi
 
-# Get API keys from current .env if available
-GEMINI_KEY=""
-GROQ_KEY=""
-if [ -f "$DIR/backend/.env" ]; then
+# Get API keys from .env.deploy or backend/.env
+GEMINI_KEY="${GEMINI_API_KEY:-}"
+GROQ_KEY="${GROQ_API_KEY:-}"
+if [ -z "$GEMINI_KEY" ] && [ -f "$DIR/backend/.env" ]; then
   GEMINI_KEY=$(grep -oP 'GEMINI_API_KEY=\K.*' "$DIR/backend/.env" 2>/dev/null || true)
+fi
+if [ -z "$GROQ_KEY" ] && [ -f "$DIR/backend/.env" ]; then
   GROQ_KEY=$(grep -oP 'GROQ_API_KEY=\K.*' "$DIR/backend/.env" 2>/dev/null || true)
 fi
 
@@ -84,7 +86,7 @@ $GCLOUD builds submit "$DIR/backend" \
 echo ""
 echo "Step 3/3: Deploying to Cloud Run..."
 
-ENV_VARS="DATABASE_URL=postgresql://neondb_owner:npg_FrOo6gx1TsIA@ep-morning-cherry-ainul04b-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require"
+ENV_VARS="DATABASE_URL=$DATABASE_URL"
 ENV_VARS="$ENV_VARS,SECRET_KEY=$SECRET_KEY"
 ENV_VARS="$ENV_VARS,CORS_ORIGINS=*"
 ENV_VARS="$ENV_VARS,AI_CLASSIFICATION_ENABLED=true"

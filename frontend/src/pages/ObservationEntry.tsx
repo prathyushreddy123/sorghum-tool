@@ -147,8 +147,15 @@ export default function ObservationEntry() {
           reasoning: prediction.reasoning,
         });
       }
-    } catch {
-      // silently fail — user scores manually
+    } catch (err) {
+      console.error('AI prediction failed:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      // Show brief toast so user knows AI didn't work (they can still score manually)
+      if (msg.includes('503') || msg.includes('unavailable')) {
+        setAiResult(null); // just skip silently for known "AI disabled" responses
+      } else {
+        setError(`AI prediction failed: ${msg}`);
+      }
     } finally {
       setAiLoading(false);
     }

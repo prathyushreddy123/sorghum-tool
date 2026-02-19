@@ -52,16 +52,26 @@ export async function getTrials(teamId?: number): Promise<Trial[]> {
   return _fetchAndCacheTrials(teamId);
 }
 
+async function _fetchAndCacheTrial(id: number): Promise<Trial> {
+  const trial = await api.getTrial(id);
+  await db.trials.put({ ...trial, _cachedAt: Date.now() });
+  return trial;
+}
+
 export async function getTrial(id: number): Promise<Trial> {
-  try {
-    const trial = await api.getTrial(id);
-    await db.trials.put({ ...trial, _cachedAt: Date.now() });
-    return trial;
-  } catch {
-    const cached = await db.trials.get(id);
+  const cached = await db.trials.get(id);
+
+  if (!navigator.onLine) {
     if (cached) return cached as unknown as Trial;
     throw new Error('Offline — trial not cached');
   }
+
+  if (cached) {
+    _fetchAndCacheTrial(id).catch(() => {});
+    return cached as unknown as Trial;
+  }
+
+  return _fetchAndCacheTrial(id);
 }
 
 // ─── Plots ───────────────────────────────────────────────────────────────────
@@ -143,74 +153,115 @@ export async function getTraits(cropHint?: string): Promise<Trait[]> {
 
 // ─── Trial Traits ────────────────────────────────────────────────────────────
 
-export async function getTrialTraits(trialId: number): Promise<TrialTrait[]> {
-  try {
-    const tts = await api.getTrialTraits(trialId);
-    const now = Date.now();
-    await db.trialTraits.bulkPut(tts.map(tt => ({
-      id: tt.id, trial_id: tt.trial_id, trait_id: tt.trait_id,
-      display_order: tt.display_order, _cachedAt: now,
-    })));
-    for (const tt of tts) {
-      await db.traits.put({ ...tt.trait, _cachedAt: now });
-    }
-    return tts;
-  } catch {
-    const cachedTTs = await db.trialTraits.where('trial_id').equals(trialId).toArray();
-    if (cachedTTs.length === 0) throw new Error('Offline — no cached trial traits');
-
-    const result: TrialTrait[] = [];
-    for (const ct of cachedTTs) {
-      const trait = await db.traits.get(ct.trait_id);
-      if (trait) {
-        result.push({
-          id: ct.id,
-          trial_id: ct.trial_id,
-          trait_id: ct.trait_id,
-          display_order: ct.display_order,
-          trait: trait as Trait,
-        });
-      }
-    }
-    return result.sort((a, b) => a.display_order - b.display_order);
+async function _fetchAndCacheTrialTraits(trialId: number): Promise<TrialTrait[]> {
+  const tts = await api.getTrialTraits(trialId);
+  const now = Date.now();
+  await db.trialTraits.where('trial_id').equals(trialId).delete();
+  await db.trialTraits.bulkPut(tts.map(tt => ({
+    id: tt.id, trial_id: tt.trial_id, trait_id: tt.trait_id,
+    display_order: tt.display_order, _cachedAt: now,
+  })));
+  for (const tt of tts) {
+    await db.traits.put({ ...tt.trait, _cachedAt: now });
   }
+  return tts;
+}
+
+async function _buildTrialTraitsFromCache(trialId: number): Promise<TrialTrait[]> {
+  const cachedTTs = await db.trialTraits.where('trial_id').equals(trialId).toArray();
+  if (cachedTTs.length === 0) return [];
+  const result: TrialTrait[] = [];
+  for (const ct of cachedTTs) {
+    const trait = await db.traits.get(ct.trait_id);
+    if (trait) {
+      result.push({
+        id: ct.id, trial_id: ct.trial_id, trait_id: ct.trait_id,
+        display_order: ct.display_order, trait: trait as Trait,
+      });
+    }
+  }
+  return result.sort((a, b) => a.display_order - b.display_order);
+}
+
+export async function getTrialTraits(trialId: number): Promise<TrialTrait[]> {
+  const cached = await _buildTrialTraitsFromCache(trialId);
+
+  if (!navigator.onLine) {
+    if (cached.length > 0) return cached;
+    throw new Error('Offline — no cached trial traits');
+  }
+
+  if (cached.length > 0) {
+    _fetchAndCacheTrialTraits(trialId).catch(() => {});
+    return cached;
+  }
+
+  return _fetchAndCacheTrialTraits(trialId);
 }
 
 // ─── Scoring Rounds ──────────────────────────────────────────────────────────
 
+async function _fetchAndCacheScoringRounds(trialId: number): Promise<ScoringRound[]> {
+  const rounds = await api.getScoringRounds(trialId);
+  const now = Date.now();
+  await db.scoringRounds.where('trial_id').equals(trialId).delete();
+  await db.scoringRounds.bulkPut(rounds.map(r => ({ ...r, _cachedAt: now })));
+  return rounds;
+}
+
 export async function getScoringRounds(trialId: number): Promise<ScoringRound[]> {
-  try {
-    const rounds = await api.getScoringRounds(trialId);
-    const now = Date.now();
-    await db.scoringRounds.bulkPut(rounds.map(r => ({ ...r, _cachedAt: now })));
-    return rounds;
-  } catch {
-    const cached = await db.scoringRounds.where('trial_id').equals(trialId).toArray();
+  const cached = await db.scoringRounds.where('trial_id').equals(trialId).toArray();
+
+  if (!navigator.onLine) {
     if (cached.length > 0) return cached as ScoringRound[];
     throw new Error('Offline — no cached scoring rounds');
   }
+
+  if (cached.length > 0) {
+    _fetchAndCacheScoringRounds(trialId).catch(() => {});
+    return cached as ScoringRound[];
+  }
+
+  return _fetchAndCacheScoringRounds(trialId);
 }
 
 // ─── Observations ────────────────────────────────────────────────────────────
 
-export async function getObservations(plotId: number, roundId?: number): Promise<Observation[]> {
-  try {
-    const obs = await api.getObservations(plotId, roundId);
-    const now = Date.now();
+async function _fetchAndCacheObservations(plotId: number, roundId?: number): Promise<Observation[]> {
+  const obs = await api.getObservations(plotId, roundId);
+  const now = Date.now();
+  // Clear old observations for this plot+round before caching fresh data
+  if (roundId) {
+    await db.observations.where('[plot_id+scoring_round_id]').equals([plotId, roundId]).delete();
+  } else {
+    await db.observations.where('plot_id').equals(plotId).delete();
+  }
+  if (obs.length > 0) {
     await db.observations.bulkPut(obs.map(o => ({ ...o, _cachedAt: now })));
-    return obs;
-  } catch {
-    let cached;
-    if (roundId) {
-      cached = await db.observations
-        .where('[plot_id+scoring_round_id]')
-        .equals([plotId, roundId])
-        .toArray();
-    } else {
-      cached = await db.observations.where('plot_id').equals(plotId).toArray();
-    }
+  }
+  return obs;
+}
+
+function _getCachedObservations(plotId: number, roundId?: number) {
+  if (roundId) {
+    return db.observations.where('[plot_id+scoring_round_id]').equals([plotId, roundId]).toArray();
+  }
+  return db.observations.where('plot_id').equals(plotId).toArray();
+}
+
+export async function getObservations(plotId: number, roundId?: number): Promise<Observation[]> {
+  const cached = await _getCachedObservations(plotId, roundId);
+
+  if (!navigator.onLine) {
     return cached as Observation[];
   }
+
+  if (cached.length > 0) {
+    _fetchAndCacheObservations(plotId, roundId).catch(() => {});
+    return cached as Observation[];
+  }
+
+  return _fetchAndCacheObservations(plotId, roundId);
 }
 
 export async function saveObservations(

@@ -52,9 +52,16 @@ if [ -z "$DATABASE_URL" ]; then
   exit 1
 fi
 
-# Generate a secure SECRET_KEY
-SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
-echo "Generated SECRET_KEY: ${SECRET_KEY:0:8}..."
+# Use SECRET_KEY from .env.deploy if set, otherwise generate one
+# WARNING: generating a new key on every deploy logs out all users.
+# Set SECRET_KEY in .env.deploy to keep it stable across deployments.
+if [ -z "$SECRET_KEY" ]; then
+  SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+  echo "Generated new SECRET_KEY: ${SECRET_KEY:0:8}..."
+  echo "  TIP: Add SECRET_KEY=$SECRET_KEY to .env.deploy to reuse it next time"
+else
+  echo "Using SECRET_KEY from .env.deploy: ${SECRET_KEY:0:8}..."
+fi
 
 # Get API keys from current .env if available
 GEMINI_KEY=""

@@ -25,6 +25,22 @@ def list_observations(
     return crud.get_observations(db, plot_id, round_id=round_id)
 
 
+@router.get(
+    "/trials/{trial_id}/observations",
+    response_model=list[ObservationResponse],
+)
+def list_trial_observations(
+    trial_id: int,
+    round_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+):
+    """Fetch all observations for a trial in one request (used by offline prefetch)."""
+    trial = crud.get_trial(db, trial_id)
+    if not trial:
+        raise HTTPException(status_code=404, detail="Trial not found")
+    return crud.get_trial_observations(db, trial_id, round_id=round_id)
+
+
 @router.post("/observations", response_model=ObservationResponse, status_code=201)
 def create_observation(data: ObservationCreate, db: Session = Depends(get_db)):
     plot = crud.get_plot(db, data.plot_id)

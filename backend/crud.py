@@ -734,6 +734,20 @@ def get_observations(db: Session, plot_id: int, round_id: int | None = None) -> 
     return query.order_by(Observation.recorded_at.desc()).all()
 
 
+def get_trial_observations(
+    db: Session, trial_id: int, round_id: int | None = None,
+) -> list[Observation]:
+    """Fetch all observations for a trial in one query (joins through plots)."""
+    query = (
+        db.query(Observation)
+        .join(Plot, Observation.plot_id == Plot.id)
+        .filter(Plot.trial_id == trial_id)
+    )
+    if round_id is not None:
+        query = query.filter(Observation.scoring_round_id == round_id)
+    return query.order_by(Observation.plot_id, Observation.recorded_at.desc()).all()
+
+
 def create_observation(
     db: Session,
     plot_id: int,

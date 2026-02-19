@@ -592,17 +592,15 @@ export async function prefetchTrialForOffline(trialId: number): Promise<void> {
     }
   }
 
-  // Pre-fetch observations for all plots in the latest round
-  if (plots && rounds && rounds.length > 0) {
+  // Pre-fetch all observations for the latest round in one request
+  if (rounds && rounds.length > 0) {
     const latestRound = rounds[rounds.length - 1];
-    await Promise.all(
-      plots.map(async (p) => {
-        try {
-          const obs = await api.getObservations(p.id, latestRound.id);
-          await db.observations.bulkPut(obs.map(o => ({ ...o, _cachedAt: now })));
-        } catch { /* skip individual plot failures */ }
-      })
-    );
+    try {
+      const allObs = await api.getTrialObservations(trialId, latestRound.id);
+      if (allObs.length > 0) {
+        await db.observations.bulkPut(allObs.map(o => ({ ...o, _cachedAt: now })));
+      }
+    } catch { /* partial failure OK — observations will be fetched per-plot as needed */ }
   }
 }
 

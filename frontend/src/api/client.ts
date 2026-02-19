@@ -276,6 +276,11 @@ export const api = {
     return request<Observation[]>(`/plots/${plotId}/observations${query}`);
   },
 
+  getTrialObservations: (trialId: number, roundId?: number) => {
+    const query = roundId ? `?round_id=${roundId}` : '';
+    return request<Observation[]>(`/trials/${trialId}/observations${query}`);
+  },
+
   saveObservations: (plotId: number, data: ObservationBulkCreate) =>
     request<Observation[]>(`/plots/${plotId}/observations/bulk`, {
       method: 'POST',

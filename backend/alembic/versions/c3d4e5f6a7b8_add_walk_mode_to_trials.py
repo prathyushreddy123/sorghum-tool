@@ -18,7 +18,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('trials', sa.Column('walk_mode', sa.String(), server_default='row_by_row'))
+    conn = op.get_bind()
+    result = conn.execute(sa.text(
+        "SELECT 1 FROM information_schema.columns WHERE table_name='trials' AND column_name='walk_mode'"
+    ))
+    if not result.fetchone():
+        op.add_column('trials', sa.Column('walk_mode', sa.String(), server_default='row_by_row'))
 
 
 def downgrade() -> None:

@@ -18,29 +18,38 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        'teams',
-        sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column('name', sa.String(), nullable=False),
-        sa.Column('invite_code', sa.String(), nullable=False, unique=True),
-        sa.Column('created_by', sa.Integer(), sa.ForeignKey('users.id'), nullable=False),
-        sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
-    )
-    op.create_index('ix_teams_invite_code', 'teams', ['invite_code'])
+    conn = op.get_bind()
+    insp = sa.inspect(conn)
 
-    op.create_table(
-        'team_members',
-        sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column('team_id', sa.Integer(), sa.ForeignKey('teams.id'), nullable=False),
-        sa.Column('user_id', sa.Integer(), sa.ForeignKey('users.id'), nullable=False),
-        sa.Column('joined_at', sa.DateTime(), server_default=sa.func.now()),
-        sa.UniqueConstraint('team_id', 'user_id', name='uq_team_member'),
-    )
-    op.create_index('ix_team_members_team_id', 'team_members', ['team_id'])
-    op.create_index('ix_team_members_user_id', 'team_members', ['user_id'])
+    if not insp.has_table('teams'):
+        op.create_table(
+            'teams',
+            sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column('name', sa.String(), nullable=False),
+            sa.Column('invite_code', sa.String(), nullable=False, unique=True),
+            sa.Column('created_by', sa.Integer(), sa.ForeignKey('users.id'), nullable=False),
+            sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
+        )
+        op.create_index('ix_teams_invite_code', 'teams', ['invite_code'])
 
-    op.add_column('trials', sa.Column('team_id', sa.Integer(), sa.ForeignKey('teams.id'), nullable=True))
-    op.create_index('ix_trials_team_id', 'trials', ['team_id'])
+    if not insp.has_table('team_members'):
+        op.create_table(
+            'team_members',
+            sa.Column('id', sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column('team_id', sa.Integer(), sa.ForeignKey('teams.id'), nullable=False),
+            sa.Column('user_id', sa.Integer(), sa.ForeignKey('users.id'), nullable=False),
+            sa.Column('joined_at', sa.DateTime(), server_default=sa.func.now()),
+            sa.UniqueConstraint('team_id', 'user_id', name='uq_team_member'),
+        )
+        op.create_index('ix_team_members_team_id', 'team_members', ['team_id'])
+        op.create_index('ix_team_members_user_id', 'team_members', ['user_id'])
+
+    result = conn.execute(sa.text(
+        "SELECT 1 FROM information_schema.columns WHERE table_name='trials' AND column_name='team_id'"
+    ))
+    if not result.fetchone():
+        op.add_column('trials', sa.Column('team_id', sa.Integer(), sa.ForeignKey('teams.id'), nullable=True))
+        op.create_index('ix_trials_team_id', 'trials', ['team_id'])
 
 
 def downgrade() -> None:

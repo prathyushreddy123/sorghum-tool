@@ -1,12 +1,14 @@
 import logging
 import os
 import time
+import traceback
 
 from alembic import command
 from alembic.config import Config
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import event
+from fastapi.responses import JSONResponse
+from sqlalchemy import event, text
 
 from config import settings
 from database import Base, engine, get_db
@@ -46,8 +48,10 @@ if os.getenv("DEBUG_QUERIES"):
 try:
     alembic_cfg = Config("alembic.ini")
     command.upgrade(alembic_cfg, "head")
+    logger.info("Alembic migrations complete.")
 except Exception as e:
-    logger.warning(f"Alembic migration failed ({e}), falling back to create_all()")
+    logger.error("Alembic migration FAILED: %s\n%s", e, traceback.format_exc())
+    logger.warning("Falling back to create_all() — new columns may be missing!")
     Base.metadata.create_all(bind=engine)
 
 # Seed trait library if empty
@@ -60,7 +64,16 @@ try:
 except Exception as e:
     logger.warning(f"Trait library seed skipped: {e}")
 
+logging.basicConfig(level=logging.INFO)
 app = FastAPI(title="FieldScout API", version="0.2.0")
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    logger.error("Unhandled exception on %s %s:\n%s", request.method, request.url.path, tb)
+    return JSONResponse(status_code=500, content={"detail": str(exc), "type": type(exc).__name__})
+
 
 cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",")]
 
@@ -88,3 +101,14 @@ app.include_router(rounds.router)
 @app.get("/")
 def root():
     return {"message": "FieldScout API", "docs": "/docs"}
+
+
+@app.get("/health/db")
+def db_health(db=Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "ok", "db": settings.DATABASE_URL[:30] + "..."}
+    except Exception as exc:
+        tb = traceback.format_exc()
+        logger.error("DB health check failed:\n%s", tb)
+        return JSONResponse(status_code=503, content={"status": "error", "detail": str(exc)})

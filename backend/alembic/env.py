@@ -38,10 +38,11 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
+        is_sqlite = connection.dialect.name == "sqlite"
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            render_as_batch=True,  # needed for SQLite ALTER TABLE support
+            render_as_batch=is_sqlite,  # batch mode only for SQLite (PostgreSQL supports ALTER TABLE directly)
         )
         with context.begin_transaction():
             context.run_migrations()

@@ -60,20 +60,55 @@ export async function getTrial(id: number): Promise<Trial> {
 
 // ─── Plots ───────────────────────────────────────────────────────────────────
 
+async function _fetchAndCachePlots(trialId: number, params?: Record<string, string>): Promise<Plot[]> {
+  const plots = await api.getPlots(trialId, params);
+  const now = Date.now();
+  await db.plots.bulkPut(plots.map(p => ({ ...p, _cachedAt: now })));
+  return plots;
+}
+
+function _filterPlotsLocally(plots: Plot[], params: Record<string, string>): Plot[] {
+  let result = plots;
+  if (params.search) {
+    const s = params.search.toLowerCase();
+    result = result.filter(p =>
+      p.plot_id.toLowerCase().includes(s) || p.genotype.toLowerCase().includes(s),
+    );
+  }
+  if (params.scored === 'true') {
+    result = result.filter(p => p.has_observations);
+  } else if (params.scored === 'false') {
+    result = result.filter(p => !p.has_observations);
+  }
+  if (params.status) {
+    result = result.filter(p => p.plot_status === params.status);
+  }
+  return result;
+}
+
 export async function getPlots(
   trialId: number,
   params?: Record<string, string>,
 ): Promise<Plot[]> {
-  try {
-    const plots = await api.getPlots(trialId, params);
-    const now = Date.now();
-    await db.plots.bulkPut(plots.map(p => ({ ...p, _cachedAt: now })));
-    return plots;
-  } catch {
-    const cached = await db.plots.where('trial_id').equals(trialId).toArray();
-    if (cached.length > 0) return cached as Plot[];
+  const cached = await db.plots.where('trial_id').equals(trialId).toArray();
+
+  if (!navigator.onLine) {
+    if (cached.length > 0) {
+      const plots = cached as unknown as Plot[];
+      return params ? _filterPlotsLocally(plots, params) : plots;
+    }
     throw new Error('Offline — no cached plots');
   }
+
+  // Stale-while-revalidate: return cache instantly, refresh in background
+  if (cached.length > 0) {
+    _fetchAndCachePlots(trialId, params).catch(() => {});
+    const plots = cached as unknown as Plot[];
+    return params ? _filterPlotsLocally(plots, params) : plots;
+  }
+
+  // No cache — must wait for API (first load)
+  return _fetchAndCachePlots(trialId, params);
 }
 
 // ─── Traits ──────────────────────────────────────────────────────────────────
@@ -340,6 +375,25 @@ export async function createTrial(data: TrialCreate): Promise<Trial> {
   return localTrial;
 }
 
+// ─── Trial deletion (cache cleanup) ──────────────────────────────────────────
+
+export async function deleteTrial(trialId: number): Promise<void> {
+  // Cascade-delete observations for all plots in this trial
+  const plotKeys = await db.plots.where('trial_id').equals(trialId).primaryKeys();
+  if (plotKeys.length > 0) {
+    const obsKeys = await db.observations
+      .where('plot_id').anyOf(plotKeys)
+      .primaryKeys();
+    await db.observations.bulkDelete(obsKeys);
+  }
+
+  // Delete plots, scoring rounds, trial traits, and the trial itself
+  await db.plots.where('trial_id').equals(trialId).delete();
+  await db.scoringRounds.where('trial_id').equals(trialId).delete();
+  await db.trialTraits.where('trial_id').equals(trialId).delete();
+  await db.trials.delete(trialId);
+}
+
 // ─── Sync engine ─────────────────────────────────────────────────────────────
 
 export async function getPendingCount(): Promise<number> {
@@ -448,7 +502,7 @@ async function replayAction(item: PendingSync): Promise<void> {
 // ─── Pre-cache a trial for offline use ───────────────────────────────────────
 
 export async function prefetchTrialForOffline(trialId: number): Promise<void> {
-  const [trial, plots, traits, rounds] = await Promise.all([
+  const results = await Promise.allSettled([
     api.getTrial(trialId),
     api.getPlots(trialId),
     api.getTrialTraits(trialId),
@@ -456,20 +510,29 @@ export async function prefetchTrialForOffline(trialId: number): Promise<void> {
   ]);
 
   const now = Date.now();
-  await db.trials.put({ ...trial, _cachedAt: now });
-  await db.plots.bulkPut(plots.map(p => ({ ...p, _cachedAt: now })));
-  await db.scoringRounds.bulkPut(rounds.map(r => ({ ...r, _cachedAt: now })));
 
-  for (const tt of traits) {
-    await db.trialTraits.put({
-      id: tt.id, trial_id: tt.trial_id, trait_id: tt.trait_id,
-      display_order: tt.display_order, _cachedAt: now,
-    });
-    await db.traits.put({ ...tt.trait, _cachedAt: now });
+  // Cache whatever succeeded — partial failures are OK
+  const trial = results[0].status === 'fulfilled' ? results[0].value : null;
+  const plots = results[1].status === 'fulfilled' ? results[1].value : null;
+  const traits = results[2].status === 'fulfilled' ? results[2].value : null;
+  const rounds = results[3].status === 'fulfilled' ? results[3].value : null;
+
+  if (trial) await db.trials.put({ ...trial, _cachedAt: now });
+  if (plots) await db.plots.bulkPut(plots.map(p => ({ ...p, _cachedAt: now })));
+  if (rounds) await db.scoringRounds.bulkPut(rounds.map(r => ({ ...r, _cachedAt: now })));
+
+  if (traits) {
+    for (const tt of traits) {
+      await db.trialTraits.put({
+        id: tt.id, trial_id: tt.trial_id, trait_id: tt.trait_id,
+        display_order: tt.display_order, _cachedAt: now,
+      });
+      await db.traits.put({ ...tt.trait, _cachedAt: now });
+    }
   }
 
   // Pre-fetch observations for all plots in the latest round
-  if (rounds.length > 0) {
+  if (plots && rounds && rounds.length > 0) {
     const latestRound = rounds[rounds.length - 1];
     await Promise.all(
       plots.map(async (p) => {

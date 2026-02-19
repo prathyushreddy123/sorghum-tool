@@ -357,6 +357,8 @@ def get_trials(db: Session, user_id: int | None = None, team_id: int | None = No
         query = query.filter(Trial.team_id == team_id)
     elif user_id is not None:
         query = query.filter(Trial.user_id == user_id)
+    else:
+        return []  # No identity = no trials (prevents unauthenticated data leak)
     return query.order_by(Trial.created_at.desc()).all()
 
 

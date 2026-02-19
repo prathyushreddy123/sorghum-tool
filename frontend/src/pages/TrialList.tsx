@@ -84,6 +84,7 @@ export default function TrialList() {
     setDeleteLoading(true);
     try {
       await api.deleteTrial(deletingId);
+      await offlineApi.deleteTrial(deletingId);
       setTrials((prev) => prev.filter((t) => t.id !== deletingId));
       setDeletingId(null);
     } catch (e) {

@@ -83,7 +83,9 @@ export default function TrialList() {
     if (deletingId === null) return;
     setDeleteLoading(true);
     try {
-      await api.deleteTrial(deletingId);
+      // Try backend delete (may 404 if already deleted — that's fine)
+      await api.deleteTrial(deletingId).catch(() => {});
+      // Always purge from local cache
       await offlineApi.deleteTrial(deletingId);
       setTrials((prev) => prev.filter((t) => t.id !== deletingId));
       setDeletingId(null);

@@ -20,7 +20,13 @@ function isFresh(cachedAt: number): boolean {
 
 async function _fetchAndCacheTrials(teamId?: number): Promise<Trial[]> {
   const trials = await api.getTrials(teamId);
-  await db.trials.bulkPut(trials.map(t => ({ ...t, _cachedAt: Date.now() })));
+  const now = Date.now();
+  // Replace cache: clear old entries then put fresh data.
+  // This ensures deleted/unowned trials don't persist in IndexedDB.
+  await db.trials.clear();
+  if (trials.length > 0) {
+    await db.trials.bulkPut(trials.map(t => ({ ...t, _cachedAt: now })));
+  }
   return trials;
 }
 
@@ -63,7 +69,11 @@ export async function getTrial(id: number): Promise<Trial> {
 async function _fetchAndCachePlots(trialId: number, params?: Record<string, string>): Promise<Plot[]> {
   const plots = await api.getPlots(trialId, params);
   const now = Date.now();
-  await db.plots.bulkPut(plots.map(p => ({ ...p, _cachedAt: now })));
+  // Replace cached plots for this trial (removes stale entries from deleted trials)
+  await db.plots.where('trial_id').equals(trialId).delete();
+  if (plots.length > 0) {
+    await db.plots.bulkPut(plots.map(p => ({ ...p, _cachedAt: now })));
+  }
   return plots;
 }
 

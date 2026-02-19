@@ -139,6 +139,57 @@ with engine.connect() as c: print(c.execute(text('SELECT * FROM alembic_version'
 
 ---
 
+### 11. ObservationEntry page loads slowly (multiple seconds)
+
+**Symptom:** Navigating to a plot's observation entry page shows "Loading..." for several seconds before data appears, even on a fast connection.
+
+**Root cause:** `offlineApi.getTrial()` always waited for the API response before returning, unlike other functions (`getPlots`, `getTrials`) that used stale-while-revalidate. Since `getTrial()` runs first in `loadData()` and blocks the subsequent `Promise.all([getPlots, getTrialTraits, getScoringRounds])`, the entire page load was gated on a network round-trip.
+
+**Fix:** Converted `getTrial()` in `frontend/src/db/offlineApi.ts` to the same stale-while-revalidate pattern: return from IndexedDB cache instantly, refresh from API in background. Added `_fetchAndCacheTrial()` helper.
+
+---
+
+### 12. AI severity classification not working after photo upload
+
+**Symptom:** Uploading a photo on the ObservationEntry page completes successfully, but no AI severity prediction appears — no spinner, no result, no error.
+
+**Root cause:** Two issues:
+
+1. **Missing API key in production:** `GEMINI_API_KEY` was set in `.env.deploy` but was never passed to Cloud Run as an environment variable. The backend had `AI_CLASSIFICATION_ENABLED=true` but no key, so Gemini returned `None`, Groq also returned `None` (no key either), and the endpoint returned 503.
+
+2. **Silent error swallowing:** The frontend's `handleImageUploaded` had a bare `catch {}` that silently discarded all errors, so the 503 was never surfaced to the user.
+
+**Fix:**
+- **Deploy:** Added `GEMINI_API_KEY` to Cloud Run env vars via `gcloud run deploy --set-env-vars` and redeployed the backend.
+- **Frontend (`ObservationEntry.tsx`):** Replaced bare `catch {}` with error handling that shows the failure message to the user (except for known "AI disabled" 503 responses).
+- **Backend (`ai_classifier.py`):** Added null-response guard for Gemini safety-blocked responses, and diagnostic logging showing key status and prediction results.
+- **Local dev:** Created `backend/.env` with the Gemini API key (was missing; only `.env.deploy` had it).
+
+**How to diagnose in future:**
+```bash
+# Check Cloud Run env vars for API keys
+gcloud run services describe fieldscout-api --platform managed --region us-east1 \
+  --format="yaml(spec.template.spec.containers[0].env)"
+
+# Check Cloud Run logs for AI classifier output
+gcloud run services logs read fieldscout-api --region=us-east1 --limit=20 | grep -i "predict\|gemini\|groq\|severity"
+```
+
+---
+
+### 13. Offline prefetch takes over a minute (240+ API calls)
+
+**Symptom:** Entering data collection mode or visiting the trial dashboard triggers hundreds of slow API calls visible in DevTools: `[SLOW API] GET /plots/{id}/observations?round_id=2 — 795ms` repeated for every plot.
+
+**Root cause:** `prefetchTrialForOffline()` in `offlineApi.ts` fetched observations for each plot individually using `Promise.all(plots.map(p => api.getObservations(p.id, roundId)))`. With ~240 plots, this fired 240 parallel HTTP requests, overwhelming both the browser connection pool and the backend.
+
+**Fix:**
+- **Backend:** Added `GET /trials/{trial_id}/observations?round_id=` endpoint (`crud.get_trial_observations()`) that fetches all observations for a trial in a single SQL query joining through the plots table.
+- **Frontend:** Updated `prefetchTrialForOffline()` to call `api.getTrialObservations(trialId, roundId)` — one request instead of 240.
+- **API client:** Added `getTrialObservations()` method to `frontend/src/api/client.ts`.
+
+---
+
 ## General Debugging Tips
 
 | Problem | Where to look |

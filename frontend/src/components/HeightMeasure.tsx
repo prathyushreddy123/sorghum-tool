@@ -47,7 +47,8 @@ export default function HeightMeasure({
       if (prediction.height_cm >= 50) {
         onHeightChange(String(prediction.height_cm));
       }
-    } catch {
+    } catch (err) {
+      console.error('AI height prediction failed:', err);
       onHeightPrediction(null);
       onHeightAiError(true);
     } finally {

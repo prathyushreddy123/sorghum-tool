@@ -3,9 +3,10 @@ import type { TouchEvent } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import * as offlineApi from '../db/offlineApi';
-import type { Plot, PlotImage, ScoringRound, TrialTrait, WalkMode } from '../types';
+import type { Plot, PlotImage, HeightPrediction, ScoringRound, TrialTrait, WalkMode } from '../types';
 import { parseTrait } from '../types';
 import TraitInput from '../components/TraitInput';
+import HeightMeasure from '../components/HeightMeasure';
 import ImageCapture from '../components/ImageCapture';
 import Snackbar from '../components/Snackbar';
 import QRScannerModal from '../components/QRScannerModal';
@@ -41,6 +42,11 @@ export default function ObservationEntry() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiResult, setAiResult] = useState<{ traitId: number; value: string; confidence: number; reasoning: string } | null>(null);
 
+  // AI height prediction
+  const [heightPrediction, setHeightPrediction] = useState<HeightPrediction | null>(null);
+  const [heightAiLoading, setHeightAiLoading] = useState(false);
+  const [heightAiError, setHeightAiError] = useState(false);
+
   // Weather
   const { temperature, humidity, gpsLat, gpsLng, gpsStatus, weatherStatus } = useWeather();
 
@@ -62,6 +68,8 @@ export default function ObservationEntry() {
     setLoading(true);
     setError('');
     setAiResult(null);
+    setHeightPrediction(null);
+    setHeightAiError(false);
     try {
       const trial = await offlineApi.getTrial(tId);
       const wm = trial.walk_mode || 'row_by_row';
@@ -472,8 +480,28 @@ export default function ObservationEntry() {
         <div className="space-y-1">
           {trialTraits.map(tt => {
             const parsed = parseTrait(tt.trait);
+            const isPlantHeight = tt.trait.name === 'plant_height';
             return (
               <div key={tt.trait_id} className="bg-white rounded-xl border border-gray-100 p-3 shadow-sm">
+                {isPlantHeight && (
+                  <div className="mb-2">
+                    <label className="text-sm font-semibold text-gray-700 mb-2 block">
+                      {parsed.label}
+                      {parsed.unit && <span className="ml-1 text-gray-400 font-normal">({parsed.unit})</span>}
+                    </label>
+                    <HeightMeasure
+                      plotId={pId}
+                      plantHeight={traitValues[tt.trait_id] ?? ''}
+                      onHeightChange={v => setTraitValue(tt.trait_id, v)}
+                      heightPrediction={heightPrediction}
+                      heightAiLoading={heightAiLoading}
+                      heightAiError={heightAiError}
+                      onHeightPrediction={setHeightPrediction}
+                      onHeightAiLoading={setHeightAiLoading}
+                      onHeightAiError={setHeightAiError}
+                    />
+                  </div>
+                )}
                 <TraitInput
                   trait={parsed}
                   value={traitValues[tt.trait_id] ?? ''}

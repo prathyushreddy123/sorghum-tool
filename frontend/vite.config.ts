@@ -37,10 +37,31 @@ export default defineConfig({
               networkTimeoutSeconds: 5,
             },
           },
+          {
+            urlPattern: /\/models\/.*\.onnx$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'ml-model-cache',
+              expiration: { maxEntries: 5, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          {
+            urlPattern: /ort-wasm.*\.wasm$/,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'wasm-cache',
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
         ],
       },
     }),
   ],
+  optimizeDeps: {
+    exclude: ['onnxruntime-web'],
+  },
   server: {
     allowedHosts: ['.trycloudflare.com'],
   },

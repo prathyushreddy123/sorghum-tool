@@ -338,6 +338,30 @@ class SeverityPredictionResponse(BaseModel):
     provider: str
 
 
+# --- Training Sample ---
+
+class TrainingSampleCreate(BaseModel):
+    image_id: int
+    severity: int = Field(..., ge=1, le=5)
+    source: str = "user_label"
+
+
+class TrainingSampleResponse(BaseModel):
+    id: int
+    image_id: int
+    severity: int
+    source: str
+    labeled_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TrainingSampleStats(BaseModel):
+    total: int
+    by_severity: dict[str, int]  # {"1": 5, "2": 10, ...}
+    by_source: dict[str, int]
+
+
 class HeightPredictionResponse(BaseModel):
     height_cm: int = Field(..., ge=0, le=400)
     confidence: float = Field(..., ge=0.0, le=1.0)

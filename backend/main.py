@@ -14,7 +14,7 @@ from config import settings
 from database import Base, engine, get_db
 import models  # noqa: F401 — registers models with Base.metadata
 from middleware import APIKeyMiddleware
-from routers import auth, images, observations, plots, rounds, stats, teams, traits, trials
+from routers import auth, images, observations, plots, rounds, stats, teams, traits, training, trials
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,7 @@ app.include_router(stats.router)
 app.include_router(images.router)
 app.include_router(traits.router)
 app.include_router(rounds.router)
+app.include_router(training.router)
 
 
 @app.get("/")

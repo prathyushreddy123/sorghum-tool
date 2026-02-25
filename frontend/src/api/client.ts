@@ -323,6 +323,13 @@ export const api = {
 
   getImageUrl: (filename: string) => `${API_BASE}/images/${filename}`,
 
+  submitTrainingSample: (imageId: number, severity: number, source: string) =>
+    request<{ id: number }>('/training/samples', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_id: imageId, severity, source }),
+    }),
+
   // ─── API Keys ─────────────────────────────────────────────────────────────
   getAPIKeys: () => request<APIKey[]>('/auth/api-keys'),
 

@@ -202,6 +202,20 @@ class Image(Base):
     plot: Mapped["Plot"] = relationship(back_populates="images")
 
 
+class TrainingSample(Base):
+    """A labeled image+severity pair collected for model training."""
+    __tablename__ = "training_samples"
+    __table_args__ = (UniqueConstraint("image_id", "severity", name="uq_training_sample"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    image_id: Mapped[int] = mapped_column(Integer, ForeignKey("images.id"), nullable=False, index=True)
+    severity: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-5
+    source: Mapped[str] = mapped_column(String, nullable=False, default="user_label")  # user_label|ai_confirmed
+    labeled_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    image: Mapped["Image"] = relationship()
+
+
 class APIKey(Base):
     __tablename__ = "api_keys"
 

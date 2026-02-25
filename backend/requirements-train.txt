@@ -1,0 +1,8 @@
+# Training pipeline dependencies (separate from main backend requirements)
+# Install with: pip install -r requirements-train.txt
+torch>=2.0
+torchvision>=0.15
+onnx>=1.14
+onnxruntime>=1.16
+Pillow>=10.0
+scikit-learn>=1.3

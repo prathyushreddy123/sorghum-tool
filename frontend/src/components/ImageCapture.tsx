@@ -7,6 +7,7 @@ interface ImageCaptureProps {
   imageType?: 'panicle' | 'full_plant';
   buttonLabel?: string;
   helpText?: string;
+  onImageCaptured?: (blob: Blob) => void;
   onImageUploaded?: (image: PlotImage) => void;
 }
 
@@ -36,7 +37,7 @@ async function compressImage(file: File, maxWidth = 1200): Promise<File> {
   });
 }
 
-export default function ImageCapture({ plotId, imageType = 'panicle', buttonLabel = 'Take Photo', helpText, onImageUploaded }: ImageCaptureProps) {
+export default function ImageCapture({ plotId, imageType = 'panicle', buttonLabel = 'Take Photo', helpText, onImageCaptured, onImageUploaded }: ImageCaptureProps) {
   const [images, setImages] = useState<PlotImage[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -54,6 +55,7 @@ export default function ImageCapture({ plotId, imageType = 'panicle', buttonLabe
     setError('');
     try {
       const compressed = await compressImage(file);
+      onImageCaptured?.(compressed);
       const img = await api.uploadImage(plotId, compressed, imageType);
       setImages((prev) => [img, ...prev]);
       onImageUploaded?.(img);

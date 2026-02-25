@@ -10,6 +10,7 @@ import HeightMeasure from '../components/HeightMeasure';
 import ImageCapture from '../components/ImageCapture';
 import Snackbar from '../components/Snackbar';
 import QRScannerModal from '../components/QRScannerModal';
+import { classifySeverity } from '../services/classifierService';
 import { useWeather } from '../hooks/useWeather';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
@@ -138,34 +139,108 @@ export default function ObservationEntry() {
     setTraitValues(prev => ({ ...prev, [traitId]: value }));
   }
 
-  // AI prediction after image upload (for first categorical trait with image)
-  async function handleImageUploaded(image: PlotImage) {
+  // Track blob and uploaded image for two-phase classification
+  const pendingBlobRef = useRef<Blob | null>(null);
+  const localResultRef = useRef<Awaited<ReturnType<typeof classifySeverity>> | null>(null);
+
+  // Phase 1: Local classification starts immediately from compressed blob
+  async function handleImageCaptured(blob: Blob) {
     const firstCategorical = trialTraits.find(tt => tt.trait.data_type === 'categorical');
     if (!firstCategorical || traitValues[firstCategorical.trait_id]) return;
 
+    pendingBlobRef.current = blob;
+    localResultRef.current = null;
     setAiLoading(true);
+
     try {
-      const prediction = await api.predictSeverity(image.id);
-      if (prediction.severity >= 1) {
-        setTraitValue(firstCategorical.trait_id, String(prediction.severity));
+      // Run local model (no imageId yet — blob only)
+      const result = await classifySeverity(blob);
+      localResultRef.current = result;
+
+      if (result.provider === 'local' && !result.lowConfidence) {
+        // High confidence local result — use immediately
+        setTraitValue(firstCategorical.trait_id, String(result.severity));
         setAiResult({
           traitId: firstCategorical.trait_id,
-          value: String(prediction.severity),
-          confidence: prediction.confidence,
-          reasoning: prediction.reasoning,
+          value: String(result.severity),
+          confidence: result.confidence,
+          reasoning: result.reasoning,
         });
+        setAiLoading(false);
+      }
+      // If low confidence, keep loading — wait for API fallback in handleImageUploaded
+    } catch (err) {
+      console.warn('Local classification failed:', err);
+      // Don't show error yet — API fallback will try in handleImageUploaded
+    }
+  }
+
+  // Phase 2: After upload completes, retry with API if local was low-confidence
+  async function handleImageUploaded(image: PlotImage) {
+    const firstCategorical = trialTraits.find(tt => tt.trait.data_type === 'categorical');
+    if (!firstCategorical || traitValues[firstCategorical.trait_id]) {
+      setAiLoading(false);
+      return;
+    }
+
+    const localResult = localResultRef.current;
+
+    // If local model already gave high-confidence result, we're done
+    if (localResult && localResult.provider === 'local' && !localResult.lowConfidence) {
+      return;
+    }
+
+    setAiLoading(true);
+    try {
+      // Re-run classifier with imageId so API fallback is available
+      const blob = pendingBlobRef.current;
+      if (blob) {
+        const result = await classifySeverity(blob, image.id);
+        if (result.severity >= 1) {
+          setTraitValue(firstCategorical.trait_id, String(result.severity));
+          setAiResult({
+            traitId: firstCategorical.trait_id,
+            value: String(result.severity),
+            confidence: result.confidence,
+            reasoning: result.reasoning,
+          });
+        }
+      } else {
+        // No blob — fall back to API-only (legacy path)
+        const prediction = await api.predictSeverity(image.id);
+        if (prediction.severity >= 1) {
+          setTraitValue(firstCategorical.trait_id, String(prediction.severity));
+          setAiResult({
+            traitId: firstCategorical.trait_id,
+            value: String(prediction.severity),
+            confidence: prediction.confidence,
+            reasoning: prediction.reasoning,
+          });
+        }
       }
     } catch (err) {
       console.error('AI prediction failed:', err);
       const msg = err instanceof Error ? err.message : String(err);
-      // Show brief toast so user knows AI didn't work (they can still score manually)
       if (msg.includes('503') || msg.includes('unavailable')) {
-        setAiResult(null); // just skip silently for known "AI disabled" responses
+        setAiResult(null);
       } else {
-        setError(`AI prediction failed: ${msg}`);
+        // If local gave a low-confidence result, use it rather than showing error
+        if (localResult && localResult.severity >= 1) {
+          setTraitValue(firstCategorical.trait_id, String(localResult.severity));
+          setAiResult({
+            traitId: firstCategorical.trait_id,
+            value: String(localResult.severity),
+            confidence: localResult.confidence,
+            reasoning: localResult.reasoning,
+          });
+        } else {
+          setError(`AI prediction failed: ${msg}`);
+        }
       }
     } finally {
       setAiLoading(false);
+      pendingBlobRef.current = null;
+      localResultRef.current = null;
     }
   }
 
@@ -207,6 +282,19 @@ export default function ObservationEntry() {
         observations,
       });
       refreshPending();
+
+      // Fire-and-forget: submit training sample if there's a photo + severity
+      const firstCategorical = trialTraits.find(tt => tt.trait.data_type === 'categorical');
+      if (firstCategorical && traitValues[firstCategorical.trait_id] && navigator.onLine) {
+        api.getImages(pId, 'panicle').then(imgs => {
+          if (imgs.length > 0) {
+            const severity = Number(traitValues[firstCategorical.trait_id]);
+            if (severity >= 1 && severity <= 5) {
+              api.submitTrainingSample(imgs[0].id, severity, 'user_label').catch(() => {});
+            }
+          }
+        }).catch(() => {});
+      }
 
       const roundName = rounds.find(r => r.id === selectedRoundId)?.name || '';
       const offlineTag = !online ? ' (offline)' : '';
@@ -450,7 +538,7 @@ export default function ObservationEntry() {
         {trialTraits.some(tt => tt.trait.data_type === 'categorical') && (
           <div className="mb-4">
             <label className="block text-sm font-medium text-neutral mb-2">Photo</label>
-            <ImageCapture plotId={pId} imageType="panicle" buttonLabel="Take Photo" onImageUploaded={handleImageUploaded} />
+            <ImageCapture plotId={pId} imageType="panicle" buttonLabel="Take Photo" onImageCaptured={handleImageCaptured} onImageUploaded={handleImageUploaded} />
           </div>
         )}
 
@@ -465,13 +553,13 @@ export default function ObservationEntry() {
           </div>
         )}
         {aiResult && !aiLoading && (
-          <div className="mb-4 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
-            <span className="text-sm text-blue-700">
+          <div className={`mb-4 px-3 py-2 rounded-lg border ${aiResult.confidence < 0.7 ? 'bg-yellow-50 border-yellow-200' : 'bg-blue-50 border-blue-200'}`}>
+            <span className={`text-sm ${aiResult.confidence < 0.7 ? 'text-yellow-700' : 'text-blue-700'}`}>
               AI set value to <strong>{aiResult.value}</strong>
-              {aiResult.confidence < 0.8 && ' (low confidence)'} — tap to change
+              {aiResult.confidence < 0.7 && ' (low confidence)'} — tap to change
             </span>
             {aiResult.reasoning && (
-              <p className="text-xs text-blue-500 mt-1">{aiResult.reasoning}</p>
+              <p className={`text-xs mt-1 ${aiResult.confidence < 0.7 ? 'text-yellow-500' : 'text-blue-500'}`}>{aiResult.reasoning}</p>
             )}
           </div>
         )}

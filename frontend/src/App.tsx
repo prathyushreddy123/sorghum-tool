@@ -16,6 +16,7 @@ const ObservationEntry = lazy(() => import('./pages/ObservationEntry'));
 const HeatmapView = lazy(() => import('./pages/HeatmapView'));
 const TeamManagement = lazy(() => import('./pages/TeamManagement'));
 const Settings = lazy(() => import('./pages/Settings'));
+const TrainingDashboard = lazy(() => import('./pages/TrainingDashboard'));
 
 function PageLoader() {
   return (
@@ -54,6 +55,7 @@ function ProtectedRoutes() {
             <Route path="/trials/:trialId/collect/:plotId" element={<ObservationEntry />} />
             <Route path="/teams" element={<TeamManagement />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/settings/training" element={<TrainingDashboard />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

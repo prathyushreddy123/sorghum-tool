@@ -342,14 +342,16 @@ class SeverityPredictionResponse(BaseModel):
 
 class TrainingSampleCreate(BaseModel):
     image_id: int
-    severity: int = Field(..., ge=1, le=5)
+    trait_name: str = Field(..., min_length=1)
+    value: str = Field(..., min_length=1)
     source: str = "user_label"
 
 
 class TrainingSampleResponse(BaseModel):
     id: int
     image_id: int
-    severity: int
+    trait_name: str
+    value: str
     source: str
     labeled_at: datetime
 
@@ -358,8 +360,32 @@ class TrainingSampleResponse(BaseModel):
 
 class TrainingSampleStats(BaseModel):
     total: int
-    by_severity: dict[str, int]  # {"1": 5, "2": 10, ...}
+    by_value: dict[str, int]    # {"1": 5, "2": 10, ...}
+    by_trait: dict[str, int]    # {"ergot_severity": 15, ...}
     by_source: dict[str, int]
+
+
+# --- Training Job ---
+
+class TrainingJobCreate(BaseModel):
+    trait_name: str = Field(..., min_length=1)
+    config: dict | None = None  # optional training config overrides
+
+
+class TrainingJobResponse(BaseModel):
+    id: int
+    trait_name: str
+    status: str
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    config: str | None
+    metrics: str | None
+    model_path: str | None
+    error_message: str | None
+    sample_count: int | None
+
+    model_config = {"from_attributes": True}
 
 
 class HeightPredictionResponse(BaseModel):

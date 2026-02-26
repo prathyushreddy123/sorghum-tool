@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../hooks/useTheme';
@@ -13,9 +14,25 @@ const THEME_OPTIONS: { mode: Theme; label: string; desc: string; icon: string }[
   { mode: 'sun', label: 'Sun / Field', desc: 'High contrast for bright sunlight', icon: '🔆' },
 ];
 
+interface ManifestModel {
+  tier1: { accuracy: number | null } | null;
+  tier2_labels: Record<string, string> | null;
+}
+
 export default function Settings() {
   const { user, logout } = useAuth();
   const { theme, setTheme } = useTheme();
+  const navigate = useNavigate();
+
+  // AI model status from manifest
+  const [modelStatus, setModelStatus] = useState<Record<string, ManifestModel> | null>(null);
+
+  useEffect(() => {
+    fetch('/models/manifest.json')
+      .then(r => r.json())
+      .then(data => setModelStatus(data.models || {}))
+      .catch(() => {});
+  }, []);
   const [keys, setKeys] = useState<APIKey[]>([]);
   const [label, setLabel] = useState('');
   const [newKey, setNewKey] = useState<string | null>(null);
@@ -133,6 +150,38 @@ export default function Settings() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* AI Model Training */}
+      <div className="mb-6 bg-card rounded-lg p-4 shadow border border-gray-100">
+        <h3 className="text-lg font-semibold text-neutral mb-2">AI Model Training</h3>
+        <p className="text-xs text-gray-400 mb-3">Status of AI classification models for each trait</p>
+        {modelStatus ? (
+          <div className="space-y-1.5 mb-3">
+            {Object.entries(modelStatus).map(([name, model]) => (
+              <div key={name} className="flex items-center justify-between text-sm">
+                <span className="text-neutral">{name}</span>
+                {model.tier1 ? (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    Trained{model.tier1.accuracy != null ? ` (${(model.tier1.accuracy * 100).toFixed(0)}%)` : ''}
+                  </span>
+                ) : model.tier2_labels ? (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">CLIP Only</span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">No AI</span>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-400 mb-3">Loading model status...</p>
+        )}
+        <button
+          onClick={() => navigate('/settings/training')}
+          className="w-full py-2.5 text-primary text-center rounded-lg font-medium text-sm min-h-[44px] border border-primary hover:bg-green-50 transition-colors"
+        >
+          Manage Training
+        </button>
       </div>
 
       {/* Trait Manager */}

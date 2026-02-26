@@ -24,6 +24,9 @@ import type {
   User,
   Team,
   TeamCreate,
+  TrainingJob,
+  TrainingSampleStats,
+  ReferenceImage,
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000';
@@ -323,12 +326,57 @@ export const api = {
 
   getImageUrl: (filename: string) => `${API_BASE}/images/${filename}`,
 
-  submitTrainingSample: (imageId: number, severity: number, source: string) =>
+  submitTrainingSample: (imageId: number, traitName: string, value: string, source: string) =>
     request<{ id: number }>('/training/samples', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_id: imageId, severity, source }),
+      body: JSON.stringify({ image_id: imageId, trait_name: traitName, value, source }),
     }),
+
+  // ─── Training Jobs ──────────────────────────────────────────────────────────
+  getTrainingJobs: (traitName?: string) => {
+    const query = traitName ? `?trait_name=${encodeURIComponent(traitName)}` : '';
+    return request<TrainingJob[]>(`/training/jobs${query}`);
+  },
+
+  createTrainingJob: (traitName: string, config?: Record<string, unknown>) =>
+    request<TrainingJob>('/training/jobs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trait_name: traitName, config }),
+    }),
+
+  cancelTrainingJob: (jobId: number) =>
+    request<TrainingJob>(`/training/jobs/${jobId}/cancel`, { method: 'POST' }),
+
+  getTrainingSampleStats: (traitName?: string) => {
+    const query = traitName ? `?trait_name=${encodeURIComponent(traitName)}` : '';
+    return request<TrainingSampleStats>(`/training/samples/stats${query}`);
+  },
+
+  getReferenceImages: (traitName: string) =>
+    request<ReferenceImage[]>(`/training/reference-images/${encodeURIComponent(traitName)}`),
+
+  uploadReferenceImage: async (traitName: string, value: string, file: File): Promise<ReferenceImage> => {
+    const form = new FormData();
+    form.append('file', file);
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/training/reference-images/${encodeURIComponent(traitName)}/${encodeURIComponent(value)}`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(body.detail || `Upload failed: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  deleteReferenceImage: (traitName: string, filename: string) =>
+    request<{ success: boolean }>(`/training/reference-images/${encodeURIComponent(traitName)}/${encodeURIComponent(filename)}`, { method: 'DELETE' }),
 
   // ─── API Keys ─────────────────────────────────────────────────────────────
   getAPIKeys: () => request<APIKey[]>('/auth/api-keys'),

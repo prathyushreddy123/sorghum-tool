@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """
-Fine-tune MobileNetV3-Large for ergot severity classification (1-5) and export to ONNX.
+Fine-tune MobileNetV3-Large for trait classification and export to ONNX.
 
 Usage:
   # Bootstrap from reference images only (proof-of-concept):
-  python scripts/train_model.py --bootstrap --output ../frontend/public/models/ergot-severity-v1.onnx
+  python scripts/train_model.py --trait ergot_severity --bootstrap --output ../frontend/public/models/ergot-severity-v1.onnx
 
   # Train from collected training data:
-  python scripts/train_model.py --data-dir ./training_data --output ../frontend/public/models/ergot-severity-v1.onnx
+  python scripts/train_model.py --trait ergot_severity --data-dir ./training_data --output ../frontend/public/models/ergot-severity-v1.onnx
 
-  # Train from both reference + collected data:
-  python scripts/train_model.py --bootstrap --data-dir ./training_data --output ../frontend/public/models/ergot-severity-v1.onnx
+  # Train with metrics output (used by training runner):
+  python scripts/train_model.py --trait ergot_severity --bootstrap --output model.onnx --metrics-output metrics.json
 
 Requirements: pip install -r requirements-train.txt
 """
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -29,17 +30,45 @@ import onnx
 import onnxruntime as ort
 import numpy as np
 
-NUM_CLASSES = 5
 INPUT_SIZE = 224
 BATCH_SIZE = 16
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD = [0.229, 0.224, 0.225]
 
 REFERENCE_DIR = Path(__file__).parent.parent / "reference_images"
+MANIFEST_PATH = Path(__file__).parent.parent.parent / "frontend" / "public" / "models" / "manifest.json"
 
 
-class SeverityDataset(Dataset):
-    """Dataset of (image_path, severity_label) pairs."""
+def get_num_classes(trait_name: str) -> int:
+    """Determine number of classes from manifest.json or reference images."""
+    if MANIFEST_PATH.exists():
+        manifest = json.loads(MANIFEST_PATH.read_text())
+        model_info = manifest.get("models", {}).get(trait_name, {})
+        # Check tier1 classes or tier2_labels
+        tier1 = model_info.get("tier1")
+        if tier1 and "classes" in tier1:
+            return len(tier1["classes"])
+        tier2 = model_info.get("tier2_labels")
+        if tier2:
+            return len(tier2)
+    # Fallback: count from reference images
+    trait_dir = REFERENCE_DIR / trait_name
+    if trait_dir.exists():
+        values = set()
+        for f in trait_dir.iterdir():
+            parts = f.stem.split("_")
+            if len(parts) >= 2:
+                try:
+                    values.add(int(parts[1]))
+                except ValueError:
+                    pass
+        if values:
+            return len(values)
+    return 5  # default
+
+
+class TraitDataset(Dataset):
+    """Dataset of (image_path, class_label) pairs."""
 
     def __init__(self, samples: list[tuple[str, int]], transform=None):
         self.samples = samples  # [(path, label_0indexed), ...]
@@ -56,39 +85,39 @@ class SeverityDataset(Dataset):
         return img, label
 
 
-def get_reference_samples() -> list[tuple[str, int]]:
-    """Load reference images from backend/reference_images/."""
+def get_reference_samples(trait_name: str) -> list[tuple[str, int]]:
+    """Load reference images from backend/reference_images/<trait_name>/."""
     samples = []
-    if not REFERENCE_DIR.exists():
-        print(f"Warning: reference_images directory not found at {REFERENCE_DIR}")
+    trait_dir = REFERENCE_DIR / trait_name
+    if not trait_dir.exists():
+        print(f"Warning: reference_images/{trait_name}/ not found at {trait_dir}")
         return samples
 
-    for f in sorted(REFERENCE_DIR.iterdir()):
-        if not f.suffix.lower() in (".jpg", ".jpeg", ".png"):
+    for f in sorted(trait_dir.iterdir()):
+        if f.suffix.lower() not in (".jpg", ".jpeg", ".png"):
             continue
-        # Parse severity_N_X.ext
+        # Parse severity_N_X.ext or <value>_X.ext
         parts = f.stem.split("_")
-        if len(parts) >= 2 and parts[0] == "severity":
+        if len(parts) >= 2:
             try:
-                severity = int(parts[1])
-                if 1 <= severity <= 5:
-                    samples.append((str(f), severity - 1))  # 0-indexed
+                value = int(parts[1])
+                samples.append((str(f), value - 1))  # 0-indexed
             except ValueError:
                 continue
     return samples
 
 
-def get_data_dir_samples(data_dir: str) -> list[tuple[str, int]]:
-    """Load images from a directory organized as data_dir/{1,2,3,4,5}/*.jpg."""
+def get_data_dir_samples(data_dir: str, num_classes: int) -> list[tuple[str, int]]:
+    """Load images from a directory organized as data_dir/{1,2,...,N}/*.jpg."""
     samples = []
     data_path = Path(data_dir)
-    for severity in range(1, 6):
-        class_dir = data_path / str(severity)
+    for cls in range(1, num_classes + 1):
+        class_dir = data_path / str(cls)
         if not class_dir.exists():
             continue
         for f in class_dir.iterdir():
             if f.suffix.lower() in (".jpg", ".jpeg", ".png"):
-                samples.append((str(f), severity - 1))
+                samples.append((str(f), cls - 1))
     return samples
 
 
@@ -116,8 +145,8 @@ def build_transforms(train=True):
         ])
 
 
-def build_model() -> nn.Module:
-    """Build MobileNetV3-Large with frozen base, custom 5-class head."""
+def build_model(num_classes: int) -> nn.Module:
+    """Build MobileNetV3-Large with frozen base, custom N-class head."""
     model = models.mobilenet_v3_large(weights=models.MobileNet_V3_Large_Weights.DEFAULT)
 
     # Freeze all base layers
@@ -130,7 +159,7 @@ def build_model() -> nn.Module:
         nn.Linear(in_features, 256),
         nn.Hardswish(),
         nn.Dropout(0.3),
-        nn.Linear(256, NUM_CLASSES),
+        nn.Linear(256, num_classes),
     )
 
     return model
@@ -177,6 +206,7 @@ def train_model(model, train_loader, val_loader, device, epochs_frozen=10, epoch
     optimizer = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=lr * 0.1)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs_unfrozen)
 
+    best_val_acc = 0.0
     print(f"\n--- Phase 2: Fine-tuning top layers ({epochs_unfrozen} epochs) ---")
     for epoch in range(epochs_unfrozen):
         model.train()
@@ -195,8 +225,11 @@ def train_model(model, train_loader, val_loader, device, epochs_frozen=10, epoch
         scheduler.step()
 
         val_acc = evaluate(model, val_loader, device) if val_loader else 0
+        best_val_acc = max(best_val_acc, val_acc)
         print(f"  Epoch {epoch+1}/{epochs_unfrozen} — loss: {total_loss/len(train_loader):.4f}, "
               f"train_acc: {100*correct/total:.1f}%, val_acc: {100*val_acc:.1f}%")
+
+    return best_val_acc
 
 
 def evaluate(model, loader, device) -> float:
@@ -211,6 +244,20 @@ def evaluate(model, loader, device) -> float:
             correct += predicted.eq(labels).sum().item()
             total += labels.size(0)
     return correct / total if total > 0 else 0
+
+
+def compute_confusion_matrix(model, loader, device, num_classes: int) -> list[list[int]]:
+    """Compute confusion matrix [true][predicted]."""
+    matrix = [[0] * num_classes for _ in range(num_classes)]
+    model.eval()
+    with torch.no_grad():
+        for images, labels in loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            _, predicted = outputs.max(1)
+            for t, p in zip(labels.tolist(), predicted.tolist()):
+                matrix[t][p] += 1
+    return matrix
 
 
 def export_to_onnx(model, output_path: str, quantize: bool = True):
@@ -256,30 +303,38 @@ def export_to_onnx(model, output_path: str, quantize: bool = True):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train ergot severity classifier")
+    parser = argparse.ArgumentParser(description="Train trait classifier")
+    parser.add_argument("--trait", type=str, default="ergot_severity", help="Trait name (default: ergot_severity)")
     parser.add_argument("--bootstrap", action="store_true", help="Use reference images for training")
-    parser.add_argument("--data-dir", type=str, help="Directory with labeled training images (organized as {1-5}/*.jpg)")
-    parser.add_argument("--output", type=str, default="../frontend/public/models/ergot-severity-v1.onnx")
+    parser.add_argument("--data-dir", type=str, help="Directory with labeled training images (organized as {1,2,...,N}/*.jpg)")
+    parser.add_argument("--output", type=str, default=None)
     parser.add_argument("--epochs-frozen", type=int, default=10)
     parser.add_argument("--epochs-unfrozen", type=int, default=20)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--no-quantize", action="store_true", help="Skip INT8 quantization")
     parser.add_argument("--augment-factor", type=int, default=50, help="Augmentation multiplier for bootstrap (default: 50)")
+    parser.add_argument("--metrics-output", type=str, default=None, help="Path to write metrics JSON (used by training runner)")
     args = parser.parse_args()
+
+    if args.output is None:
+        args.output = f"../frontend/public/models/{args.trait}-v1.onnx"
 
     if not args.bootstrap and not args.data_dir:
         print("Error: specify --bootstrap, --data-dir, or both")
         sys.exit(1)
 
+    num_classes = get_num_classes(args.trait)
+    print(f"Training classifier for trait '{args.trait}' with {num_classes} classes")
+
     # Collect samples
     samples = []
     if args.bootstrap:
-        ref_samples = get_reference_samples()
+        ref_samples = get_reference_samples(args.trait)
         print(f"Reference images: {len(ref_samples)}")
         # Multiply bootstrap samples to create more training data via augmentation
         samples.extend(ref_samples * args.augment_factor)
     if args.data_dir:
-        data_samples = get_data_dir_samples(args.data_dir)
+        data_samples = get_data_dir_samples(args.data_dir, num_classes)
         print(f"Training data images: {len(data_samples)}")
         samples.extend(data_samples)
 
@@ -293,7 +348,7 @@ def main():
     print(f"Class distribution: {dict(sorted((k+1, v) for k, v in dist.items()))}")
 
     # Weighted sampler for class imbalance
-    class_counts = [dist.get(i, 1) for i in range(NUM_CLASSES)]
+    class_counts = [dist.get(i, 1) for i in range(num_classes)]
     weights = [1.0 / class_counts[label] for _, label in samples]
     sampler = WeightedRandomSampler(weights, len(samples), replacement=True)
 
@@ -301,12 +356,12 @@ def main():
     from sklearn.model_selection import train_test_split
     train_samples, val_samples = train_test_split(samples, test_size=0.1, stratify=[l for _, l in samples], random_state=42)
 
-    train_dataset = SeverityDataset(train_samples, transform=build_transforms(train=True))
-    val_dataset = SeverityDataset(val_samples, transform=build_transforms(train=False))
+    train_dataset = TraitDataset(train_samples, transform=build_transforms(train=True))
+    val_dataset = TraitDataset(val_samples, transform=build_transforms(train=False))
 
     # Recalculate sampler weights for train split only
     train_dist = Counter(label for _, label in train_samples)
-    train_class_counts = [train_dist.get(i, 1) for i in range(NUM_CLASSES)]
+    train_class_counts = [train_dist.get(i, 1) for i in range(num_classes)]
     train_weights = [1.0 / train_class_counts[label] for _, label in train_samples]
     train_sampler = WeightedRandomSampler(train_weights, len(train_samples), replacement=True)
 
@@ -317,16 +372,39 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
 
-    model = build_model().to(device)
-    train_model(model, train_loader, val_loader, device,
-                epochs_frozen=args.epochs_frozen,
-                epochs_unfrozen=args.epochs_unfrozen,
-                lr=args.lr)
+    model = build_model(num_classes).to(device)
+    best_val_acc = train_model(model, train_loader, val_loader, device,
+                               epochs_frozen=args.epochs_frozen,
+                               epochs_unfrozen=args.epochs_unfrozen,
+                               lr=args.lr)
+
+    # Compute confusion matrix on validation set
+    confusion = compute_confusion_matrix(model, val_loader, device, num_classes)
+    final_val_acc = evaluate(model, val_loader, device)
 
     # Export
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
     export_to_onnx(model, args.output, quantize=not args.no_quantize)
     print(f"\nDone! Model saved to {args.output}")
+
+    # Write metrics JSON if requested
+    if args.metrics_output:
+        metrics = {
+            "trait_name": args.trait,
+            "num_classes": num_classes,
+            "total_samples": len(samples),
+            "train_samples": len(train_samples),
+            "val_samples": len(val_samples),
+            "val_accuracy": round(final_val_acc, 4),
+            "best_val_accuracy": round(best_val_acc, 4),
+            "confusion_matrix": confusion,
+            "class_distribution": {str(k + 1): v for k, v in sorted(dist.items())},
+            "model_path": os.path.abspath(args.output),
+            "model_size_mb": round(os.path.getsize(args.output) / 1024 / 1024, 1),
+        }
+        with open(args.metrics_output, "w") as f:
+            json.dump(metrics, f, indent=2)
+        print(f"Metrics written to {args.metrics_output}")
 
 
 if __name__ == "__main__":

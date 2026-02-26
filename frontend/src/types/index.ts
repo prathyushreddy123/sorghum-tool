@@ -308,3 +308,48 @@ export interface HeightPrediction {
 }
 
 export type ClinometerStep = 'distance' | 'base' | 'top' | 'result';
+
+// ─── Training ─────────────────────────────────────────────────────────────────
+
+export type TrainingJobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
+
+export interface TrainingJob {
+  id: number;
+  trait_name: string;
+  status: TrainingJobStatus;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  config: string | null;      // JSON string
+  metrics: string | null;     // JSON string
+  model_path: string | null;
+  error_message: string | null;
+  sample_count: number | null;
+}
+
+export interface TrainingSampleStats {
+  total: number;
+  by_value: Record<string, number>;
+  by_trait: Record<string, number>;
+  by_source: Record<string, number>;
+}
+
+export interface ReferenceImage {
+  filename: string;
+  value: string;
+  path: string;
+}
+
+export interface TrainingMetrics {
+  trait_name: string;
+  num_classes: number;
+  total_samples: number;
+  train_samples: number;
+  val_samples: number;
+  val_accuracy: number;
+  best_val_accuracy: number;
+  confusion_matrix: number[][];
+  class_distribution: Record<string, number>;
+  model_path: string;
+  model_size_mb: number;
+}

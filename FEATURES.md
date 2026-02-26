@@ -138,18 +138,41 @@ The core data collection page where researchers score plots in the field.
 
 **Training pipeline:**
 - `backend/scripts/train_model.py` — MobileNetV3-Large fine-tuning (PyTorch → ONNX)
-- MobileNetV3-Large with frozen base + custom classification head
+- Generalized for any trait via `--trait <name>` arg (default: ergot_severity)
+- MobileNetV3-Large with frozen base + custom N-class classification head (auto-detected from manifest)
 - 2-phase training: 10 epochs frozen → 20 epochs fine-tune top 30 layers
 - Data augmentation: 50x multiplier for reference images (resize crop, flip, rotation, color jitter)
 - INT8 quantization reduces model from ~22MB FP32 → 13MB
-- CLI: `python scripts/train_model.py --bootstrap --output ../frontend/public/models/ergot-severity-v1.onnx`
+- Outputs confusion matrix + metrics JSON via `--metrics-output` arg (used by training runner)
+- Reference images loaded from `backend/reference_images/<trait_name>/`
+- CLI: `python scripts/train_model.py --trait ergot_severity --bootstrap --output ../frontend/public/models/ergot-severity-v1.onnx`
+
+**Background training runner (Phase 3):**
+- `backend/services/training_runner.py` — Daemon thread started with FastAPI
+- Polls DB for queued `TrainingJob` records every 5 seconds
+- Runs `train_model.py` as subprocess (isolates PyTorch memory, avoids SQLite writer contention)
+- On completion: reads metrics JSON, updates job status, updates `manifest.json` with new tier1 entry
+- Stores subprocess PID for cancel support
+- DB model: `TrainingJob` with status (queued|running|completed|failed|cancelled), config JSON, metrics JSON
 
 **Training data collection endpoints:**
-- `POST /training/samples` — Submit labeled sample (image_id + severity 1-5)
-- `GET /training/samples/stats` — Distribution stats
+- `POST /training/samples` — Submit labeled sample (image_id + trait_name + value)
+- `GET /training/samples/stats` — Distribution stats (by_value, by_trait, by_source), filterable by trait_name
 - `GET /training/export` — CSV export for training pipeline
 - Backend router: `backend/routers/training.py`
-- DB model: `TrainingSample` in `backend/models.py`
+- DB model: `TrainingSample` in `backend/models.py` (generalized: trait_name + value instead of severity)
+
+**Training job management endpoints (Phase 3):**
+- `POST /training/jobs` — Queue a new model training job (checks for existing active job per trait)
+- `GET /training/jobs` — List training jobs, filterable by trait_name
+- `GET /training/jobs/{id}` — Get a specific job
+- `POST /training/jobs/{id}/cancel` — Cancel a queued/running job
+
+**Reference image management endpoints (Phase 3):**
+- `GET /training/reference-images/{trait}` — List reference images for a trait
+- `POST /training/reference-images/{trait}/{value}` — Upload a reference image
+- `DELETE /training/reference-images/{trait}/{filename}` — Delete a reference image
+- Reference images organized as `backend/reference_images/<trait_name>/severity_N_X.ext`
 
 **PWA offline caching (Workbox in `vite.config.ts`):**
 - Manifest Cache (NetworkFirst): `manifest.json` cached 24 hours
@@ -280,7 +303,8 @@ Replaces the hardcoded single-model system with a dynamic registry that supports
 - AI error/unavailable: Gray banner — "AI analysis unavailable. Score manually below."
 
 **Reference Images:**
-- 27 labeled images in `backend/reference_images/` (named `severity_{1-5}_{a-m}.jpg`)
+- 27 labeled images in `backend/reference_images/ergot_severity/` (named `severity_{1-5}_{a-m}.jpg`)
+- Organized in per-trait subdirectories under `backend/reference_images/<trait_name>/` (Phase 3)
 - AI selects 2 smallest per level (max 500KB each) to minimize API payload (~502KB total)
 - Labeled using Gemini via `backend/scripts/label_reference_images.py` and `label_remaining_images.py`
 
@@ -499,9 +523,26 @@ Cascade deletes: Trial -> Plots -> Observations + Images
 See Section 4a above. MobileNetV3 ONNX model runs in-browser for ergot severity.
 Full multi-trait architecture planned in `PRD_AI_CLASSIFICATION.md`.
 
+### 4e. Training Management Dashboard (Phase 3 — Completed)
+
+**Status:** Implemented on `feature/local-ai-classification`
+
+**Training Dashboard** (`frontend/src/pages/TrainingDashboard.tsx`, route: `/settings/training`):
+- **Model Overview:** All traits from manifest with tier status badges (Trained / CLIP Only / No AI)
+- **Per-Trait Cards** (expandable): training data stats (sample count per class), reference image grid with upload/delete, "Train Model" button
+- **Training History:** Job list with status badges (queued/running/completed/failed/cancelled), auto-polls for active jobs, expandable metrics with accuracy + confusion matrix for completed jobs
+- **Cancel Support:** Cancel running/queued jobs from the UI
+
+**Settings Page Integration** (`frontend/src/pages/Settings.tsx`):
+- New "AI Model Training" section showing per-trait model status badges
+- "Manage Training" link to training dashboard
+
+**Database Changes:**
+- `TrainingSample` generalized: `trait_name` (String) + `value` (String) instead of `severity` (Integer)
+- New unique constraint on `(image_id, trait_name)` — one sample per trait per image
+- New `TrainingJob` table: id, trait_name, status, created_at, started_at, completed_at, config (JSON), metrics (JSON), model_path, error_message, sample_count
+
 ### Planned AI Expansion (see PRD_AI_CLASSIFICATION.md for full details)
-- **CLIP zero-shot:** MobileCLIP-S0 (~12MB) for instant AI on any categorical trait without training
 - **RunPod serverless:** Self-hosted Qwen2-VL-7B as mid-cost fallback tier
 - **Multi-trait models:** Separate fine-tuned models per trait (anthracnose, compactness, fertility, etc.)
-- **Training management dashboard:** Admin UI to upload reference images, trigger training, view accuracy
 - **Model registry:** `manifest.json` for dynamic model loading per trait per trial

@@ -65,7 +65,22 @@ except Exception as e:
     logger.warning(f"Trait library seed skipped: {e}")
 
 logging.basicConfig(level=logging.INFO)
+
+# Start training job runner
+from services.training_runner import start_training_runner, stop_training_runner
+
+try:
+    start_training_runner()
+    logger.info("Training job runner started.")
+except Exception as e:
+    logger.warning(f"Training runner failed to start: {e}")
+
 app = FastAPI(title="FieldScout API", version="0.2.0")
+
+
+@app.on_event("shutdown")
+def shutdown_training_runner():
+    stop_training_runner()
 
 
 @app.exception_handler(Exception)

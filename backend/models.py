@@ -203,17 +203,35 @@ class Image(Base):
 
 
 class TrainingSample(Base):
-    """A labeled image+severity pair collected for model training."""
+    """A labeled image+trait_name+value tuple collected for model training."""
     __tablename__ = "training_samples"
-    __table_args__ = (UniqueConstraint("image_id", "severity", name="uq_training_sample"),)
+    __table_args__ = (UniqueConstraint("image_id", "trait_name", name="uq_training_sample_trait"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     image_id: Mapped[int] = mapped_column(Integer, ForeignKey("images.id"), nullable=False, index=True)
-    severity: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-5
+    trait_name: Mapped[str] = mapped_column(String, nullable=False)  # e.g. "ergot_severity"
+    value: Mapped[str] = mapped_column(String, nullable=False)       # e.g. "3"
     source: Mapped[str] = mapped_column(String, nullable=False, default="user_label")  # user_label|ai_confirmed
     labeled_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     image: Mapped["Image"] = relationship()
+
+
+class TrainingJob(Base):
+    """A queued/running/completed model training job."""
+    __tablename__ = "training_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    trait_name: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="queued")  # queued|running|completed|failed|cancelled
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    config: Mapped[str | None] = mapped_column(String, nullable=True)         # JSON string
+    metrics: Mapped[str | None] = mapped_column(String, nullable=True)        # JSON string
+    model_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String, nullable=True)
+    sample_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class APIKey(Base):

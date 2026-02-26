@@ -339,7 +339,7 @@ export default function ObservationEntry() {
           modelManager.getPhotoType(tt.trait.name).then(photoType => {
             api.getImages(pId, photoType || 'panicle').then(imgs => {
               if (imgs.length > 0) {
-                api.submitTrainingSample(imgs[0].id, severity, 'user_label').catch(() => {});
+                api.submitTrainingSample(imgs[0].id, tt.trait.name, String(severity), 'user_label').catch(() => {});
               }
             }).catch(() => {});
           }).catch(() => {});

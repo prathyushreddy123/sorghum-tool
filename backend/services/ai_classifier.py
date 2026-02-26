@@ -55,7 +55,7 @@ def _load_reference_images() -> list[dict]:
 
     # Load all reference images grouped by severity
     by_severity: dict[int, list[dict]] = {i: [] for i in range(1, 6)}
-    pattern = os.path.join(REFERENCE_DIR, "severity_*.*")
+    pattern = os.path.join(REFERENCE_DIR, "ergot_severity", "severity_*.*")
     for filepath in sorted(glob.glob(pattern)):
         filename = os.path.basename(filepath)
         ext = os.path.splitext(filename)[1].lower()

@@ -62,3 +62,13 @@ def require_user(user: User | None = Depends(get_current_user)) -> User:
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+
+
+def require_admin(user: User = Depends(require_user)) -> User:
+    """Dependency that requires admin role."""
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    return user

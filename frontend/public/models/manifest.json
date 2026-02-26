@@ -1,0 +1,81 @@
+{
+  "version": "2026-02-25",
+  "models": {
+    "ergot_severity": {
+      "tier1": {
+        "url": "/models/ergot-severity-v1.onnx",
+        "version": "v1",
+        "size_mb": 13,
+        "accuracy": null,
+        "classes": ["1", "2", "3", "4", "5"],
+        "class_labels": ["None (0%)", "Low (1-10%)", "Moderate (11-25%)", "High (26-50%)", "Severe (>50%)"],
+        "input_size": 224,
+        "confidence_threshold": 0.70
+      },
+      "tier2_labels": {
+        "1": "sorghum panicle with no ergot, no honeydew, completely clean healthy panicle",
+        "2": "sorghum panicle with slight ergot infection, few small honeydew droplets on 1-10% of spikelets",
+        "3": "sorghum panicle with moderate ergot infection, honeydew droplets on 11-25% of spikelets",
+        "4": "sorghum panicle with heavy ergot infection, extensive honeydew on 26-50% of spikelets, visible mold",
+        "5": "sorghum panicle with severe ergot infection, entire panicle covered in honeydew, over 50% affected, sclerotia forming"
+      },
+      "tier3": "llm_few_shot",
+      "photo_type": "panicle"
+    },
+    "anthracnose_severity": {
+      "tier1": null,
+      "tier2_labels": {
+        "1": "healthy sorghum leaf with no anthracnose lesions",
+        "2": "sorghum leaf with few small anthracnose lesions, 1-10% leaf area affected",
+        "3": "sorghum leaf with moderate anthracnose, lesions on 11-25% of leaf area",
+        "4": "sorghum leaf with severe anthracnose, 26-50% leaf area covered in lesions",
+        "5": "sorghum leaf heavily damaged by anthracnose, over 50% leaf area with coalescing lesions"
+      },
+      "tier3": "llm_few_shot",
+      "photo_type": "leaf"
+    },
+    "flowering_stage": {
+      "tier1": null,
+      "tier2_labels": {
+        "1": "sorghum field plot with no visible panicles or all panicles still in boot stage, no flowering",
+        "2": "sorghum field plot with less than 25 percent of plants showing panicles with extruded yellow anthers, most plants not yet flowering",
+        "3": "sorghum field plot with approximately 50 percent of plants showing yellow anthers on panicles, half of the plot is flowering",
+        "4": "sorghum field plot with more than 75 percent of plants flowering, most panicles have visible anthers, some starting to dry",
+        "5": "sorghum field plot fully past flowering, all panicles done with anthesis, grain filling has begun, no fresh anthers visible"
+      },
+      "tier3": "llm_few_shot",
+      "photo_type": "plot_overview"
+    },
+    "compactness_score": {
+      "tier1": null,
+      "tier2_labels": {
+        "1": "very loose open sorghum panicle with widely spaced branches",
+        "2": "loose sorghum panicle with visible gaps between branches",
+        "3": "medium compact sorghum panicle with moderate branch density",
+        "4": "compact sorghum panicle with tightly packed branches",
+        "5": "very compact dense sorghum panicle, cylindrical shape, no gaps"
+      },
+      "tier3": "llm_few_shot",
+      "photo_type": "panicle"
+    },
+    "fertility_score": {
+      "tier1": null,
+      "tier2_labels": {
+        "1": "sorghum panicle with very poor seed set, less than 20% of florets filled, mostly empty glumes",
+        "2": "sorghum panicle with poor seed set, 20-40% of florets filled",
+        "3": "sorghum panicle with moderate seed set, 40-60% of florets filled",
+        "4": "sorghum panicle with good seed set, 60-80% of florets filled",
+        "5": "sorghum panicle with excellent seed set, over 80% of florets filled, plump grains throughout"
+      },
+      "tier3": "llm_few_shot",
+      "photo_type": "panicle"
+    }
+  },
+  "clip_model": {
+    "url": "/models/mobileclip-s0-vision.onnx",
+    "version": "v1",
+    "size_mb": 46,
+    "input_size": 256,
+    "embedding_dim": 512
+  }
+}

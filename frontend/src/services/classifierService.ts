@@ -1,10 +1,10 @@
-import { classify, isModelLoaded, loadModel } from './localClassifier';
+import { modelManager } from './modelManager';
+import type { LocalPrediction } from './modelManager';
+import { clipClassifier } from './clipClassifier';
 import { api } from '../api/client';
 
-const CONFIDENCE_THRESHOLD = 0.70;
-
 export interface ClassificationResult {
-  severity: number; // 1-5
+  value: string;          // the predicted class value (e.g. "1", "2", "3")
   confidence: number;
   reasoning: string;
   provider: 'local' | 'api';
@@ -12,59 +12,94 @@ export interface ClassificationResult {
 }
 
 /**
- * Classify ergot severity using local model first, API fallback second.
+ * Classify a categorical trait using the tiered strategy:
+ *   Tier 1: Fine-tuned ONNX model (if exists for this trait)
+ *   Tier 2: CLIP zero-shot (MobileCLIP2-S0 via precomputed text embeddings)
+ *   Tier 3: API fallback (Gemini/Groq)
  *
- * Flow:
- *  1. Try local ONNX model on the blob
- *  2. If confidence >= 0.70 → return local result
- *  3. If confidence < 0.70 AND online AND imageId available → try API
- *  4. If offline or API fails → return local result with low-confidence warning
+ * @param traitName - The trait slug (e.g. "ergot_severity", "anthracnose_severity")
+ * @param blob      - The compressed image blob
+ * @param imageId   - Optional server image ID (needed for API fallback)
  */
-export async function classifySeverity(
+export async function classifyTrait(
+  traitName: string,
   blob: Blob,
   imageId?: number,
 ): Promise<ClassificationResult> {
-  // Try local model
-  let localResult: Awaited<ReturnType<typeof classify>> | null = null;
-  try {
-    localResult = await classify(blob);
-  } catch (err) {
-    console.warn('[classifierService] Local model failed:', err);
-  }
+  const threshold = await modelManager.getConfidenceThreshold(traitName);
+  const entry = await modelManager.getTraitEntry(traitName);
 
-  // If local model succeeded with high confidence, use it
-  if (localResult && localResult.confidence >= CONFIDENCE_THRESHOLD) {
-    return {
-      severity: localResult.severity,
-      confidence: localResult.confidence,
-      reasoning: `Local model (${(localResult.confidence * 100).toFixed(0)}% confidence)`,
-      provider: 'local',
-      lowConfidence: false,
-    };
-  }
-
-  // Try API fallback if online and we have an image ID
-  if (navigator.onLine && imageId) {
+  // ── Tier 1: Fine-tuned ONNX model ──────────────────────────────────────
+  let localResult: LocalPrediction | null = null;
+  if (entry?.tier1) {
     try {
-      const apiResult = await api.predictSeverity(imageId);
-      if (apiResult.severity >= 1) {
-        return {
-          severity: apiResult.severity,
-          confidence: apiResult.confidence,
-          reasoning: apiResult.reasoning,
-          provider: 'api',
-          lowConfidence: false,
-        };
-      }
+      localResult = await modelManager.classify(traitName, blob);
     } catch (err) {
-      console.warn('[classifierService] API fallback failed:', err);
+      console.warn(`[classifierService] Tier 1 failed for ${traitName}:`, err);
+    }
+
+    if (localResult && localResult.confidence >= threshold) {
+      return {
+        value: localResult.classValue,
+        confidence: localResult.confidence,
+        reasoning: `Local model (${(localResult.confidence * 100).toFixed(0)}% confidence)`,
+        provider: 'local',
+        lowConfidence: false,
+      };
     }
   }
 
-  // Use local result even with low confidence (best effort)
+  // ── Tier 2: CLIP zero-shot ─────────────────────────────────────────────
+  if (entry?.tier2_labels) {
+    try {
+      const clipResult = await clipClassifier.classify(traitName, blob);
+      if (clipResult && clipResult.confidence >= (threshold * 0.8)) {
+        // Accept CLIP at slightly lower threshold than Tier 1 (80% of threshold)
+        return {
+          value: clipResult.classValue,
+          confidence: clipResult.confidence,
+          reasoning: `CLIP zero-shot (${(clipResult.confidence * 100).toFixed(0)}% confidence)`,
+          provider: 'local',
+          lowConfidence: clipResult.confidence < threshold,
+        };
+      }
+      // Store CLIP result as fallback if API also fails
+      if (clipResult && (!localResult || clipResult.confidence > localResult.confidence)) {
+        localResult = clipResult;
+      }
+    } catch (err) {
+      console.warn(`[classifierService] Tier 2 CLIP failed for ${traitName}:`, err);
+    }
+  }
+
+  // ── Tier 3: API fallback ───────────────────────────────────────────────
+  if (navigator.onLine && imageId) {
+    try {
+      // Currently the API endpoint only supports severity prediction.
+      // For ergot_severity, use the existing endpoint.
+      // Other traits will use a generalized endpoint in the future.
+      if (traitName === 'ergot_severity') {
+        const apiResult = await api.predictSeverity(imageId);
+        if (apiResult.severity >= 1) {
+          return {
+            value: String(apiResult.severity),
+            confidence: apiResult.confidence,
+            reasoning: apiResult.reasoning,
+            provider: 'api',
+            lowConfidence: false,
+          };
+        }
+      }
+      // TODO: Generalized API endpoint for other traits (Phase 4 — RunPod)
+    } catch (err) {
+      console.warn(`[classifierService] Tier 3 API failed for ${traitName}:`, err);
+    }
+  }
+
+  // ── Fallback: return local result even with low confidence ─────────────
   if (localResult) {
     return {
-      severity: localResult.severity,
+      value: localResult.classValue,
       confidence: localResult.confidence,
       reasoning: `Local model (${(localResult.confidence * 100).toFixed(0)}% confidence — low confidence)`,
       provider: 'local',
@@ -72,17 +107,33 @@ export async function classifySeverity(
     };
   }
 
-  // No model available and no API — throw
-  throw new Error('Classification unavailable: no local model and no API connection');
+  throw new Error(`Classification unavailable for ${traitName}: no local model and no API connection`);
 }
 
-/** Preload the local model so first classification is fast. */
-export async function preloadModel(): Promise<void> {
-  try {
-    await loadModel();
-  } catch {
-    // Model not available yet — that's fine, will fall back to API
-  }
+// ── Legacy wrapper for backward compat (used in ObservationEntry) ────────
+
+/**
+ * @deprecated Use classifyTrait() with explicit trait name instead.
+ * Kept for backward compatibility during migration.
+ */
+export async function classifySeverity(
+  blob: Blob,
+  imageId?: number,
+): Promise<ClassificationResult> {
+  return classifyTrait('ergot_severity', blob, imageId);
 }
 
-export { isModelLoaded };
+/** Preload models for the given trait names (Tier 1 + CLIP). */
+export async function preloadModels(traitNames: string[]): Promise<void> {
+  await Promise.allSettled([
+    modelManager.preloadModels(traitNames),
+    clipClassifier.preload(traitNames),
+  ]);
+}
+
+/** Check if a trait has any AI support. */
+export async function hasAISupport(traitName: string): Promise<boolean> {
+  return modelManager.hasAISupport(traitName);
+}
+
+export { modelManager };

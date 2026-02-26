@@ -113,6 +113,143 @@ The core data collection page where researchers score plots in the field.
 
 ## 4. AI-Powered Classification
 
+### 4a. In-Browser Offline AI (`feature/local-ai-classification`)
+
+**Status:** Implemented, local branch only (not yet merged to main)
+
+**Architecture:** 3-tier hybrid inference
+1. **Tier 1 — Local ONNX Model:** MobileNetV3-Large INT8 (13MB), runs in-browser via `onnxruntime-web` (WASM). <200ms inference, fully offline after first download.
+2. **Tier 2 — CLIP Zero-Shot:** (Planned — Phase 2) MobileCLIP-S0 for traits without trained models.
+3. **Tier 3 — Cloud API Fallback:** Gemini 2.5 Flash + Groq Llama 4 Scout (existing). Used when local confidence < threshold.
+
+**How it works:**
+1. User captures photo (panicle, leaf, or plot overview depending on trait)
+2. Phase 1 (instant): Compressed blob → local ONNX model → prediction in <200ms
+3. If confidence >= threshold → auto-populate trait value, done (no upload needed)
+4. Phase 2 (if low confidence + online): Upload photo → API fallback → better prediction
+5. Fire-and-forget: Submit labeled data to `/training/samples` for all AI-supported traits
+
+**Inference files:**
+- `frontend/src/services/localClassifier.ts` — Low-level ONNX inference (legacy, kept for reference)
+- `frontend/src/services/modelManager.ts` — **Dynamic multi-model manager** (Phase 1 addition)
+- `frontend/src/services/classifierService.ts` — Trait-aware hybrid strategy orchestrator
+- `frontend/public/models/ergot-severity-v1.onnx` — 13MB INT8 quantized model
+- `frontend/public/models/manifest.json` — **Model registry** (Phase 1 addition)
+
+**Training pipeline:**
+- `backend/scripts/train_model.py` — MobileNetV3-Large fine-tuning (PyTorch → ONNX)
+- MobileNetV3-Large with frozen base + custom classification head
+- 2-phase training: 10 epochs frozen → 20 epochs fine-tune top 30 layers
+- Data augmentation: 50x multiplier for reference images (resize crop, flip, rotation, color jitter)
+- INT8 quantization reduces model from ~22MB FP32 → 13MB
+- CLI: `python scripts/train_model.py --bootstrap --output ../frontend/public/models/ergot-severity-v1.onnx`
+
+**Training data collection endpoints:**
+- `POST /training/samples` — Submit labeled sample (image_id + severity 1-5)
+- `GET /training/samples/stats` — Distribution stats
+- `GET /training/export` — CSV export for training pipeline
+- Backend router: `backend/routers/training.py`
+- DB model: `TrainingSample` in `backend/models.py`
+
+**PWA offline caching (Workbox in `vite.config.ts`):**
+- Manifest Cache (NetworkFirst): `manifest.json` cached 24 hours
+- ML Model Cache (CacheFirst): `.onnx` files cached 30 days, up to 20 models
+- WASM Cache (CacheFirst): `ort-wasm-*.wasm` cached 30 days
+- After first visit: ~25MB cached (13MB model + 12MB WASM) → fully offline inference
+
+---
+
+### 4b. Model Registry & Dynamic Loading (Phase 1 — Completed)
+
+**Status:** Implemented on `feature/local-ai-classification`
+
+Replaces the hardcoded single-model system with a dynamic registry that supports any number of traits and models.
+
+**Model Manifest (`frontend/public/models/manifest.json`):**
+- Defines per-trait AI configuration: Tier 1 model URL, Tier 2 CLIP labels, Tier 3 strategy
+- Each trait specifies: `photo_type` (panicle / leaf / plot_overview), `confidence_threshold`, `classes`
+- 5 traits configured: `ergot_severity`, `anthracnose_severity`, `flowering_stage`, `compactness_score`, `fertility_score`
+- Only `ergot_severity` has a Tier 1 model; others have Tier 2 CLIP labels ready for Phase 2
+
+**ModelManager (`frontend/src/services/modelManager.ts`):**
+- Singleton class managing all ONNX model lifecycle
+- `getManifest()` — Fetches and caches the manifest
+- `getTraitEntry(traitName)` — Looks up AI config for a trait
+- `hasAISupport(traitName)` — Checks if any tier is available
+- `getPhotoType(traitName)` — Returns required photo type (panicle/leaf/plot_overview)
+- `loadModel(traitName)` — Lazy-loads a Tier 1 ONNX model by trait name
+- `preloadModels(traitNames[])` — Preloads models for a set of traits (fire-and-forget)
+- `classify(traitName, blob)` — Runs inference, returns `{classValue, confidence, allScores}`
+- `getConfidenceThreshold(traitName)` — Per-trait threshold from manifest
+- `onStatusChange(listener)` — Subscribe to model loading status updates
+- Image preprocessing: ImageNet normalization, dynamic input size from manifest
+
+**Trait-Aware Classifier (`frontend/src/services/classifierService.ts`):**
+- `classifyTrait(traitName, blob, imageId?)` — Main entry point, routes through tiers:
+  - Tier 1: `modelManager.classify()` if trained model exists
+  - Tier 2: CLIP zero-shot (placeholder — Phase 2)
+  - Tier 3: API fallback (currently only `ergot_severity` via existing endpoint)
+- `preloadModels(traitNames[])` — Delegates to ModelManager
+- `hasAISupport(traitName)` — Checks manifest
+- `classifySeverity()` — Legacy backward-compatible wrapper
+
+**ObservationEntry Integration (`frontend/src/pages/ObservationEntry.tsx`):**
+- Resolves which traits have AI support on page load (from manifest)
+- Preloads Tier 1 models for current trial's categorical traits
+- Matches captured photos to correct trait by `photo_type` in manifest
+- Submits training samples for ALL AI-supported categorical traits (not just ergot)
+- Shows AI support badge: "AI: ergot severity, anthracnose severity, ..." next to photo section
+- `handleImageCaptured()` and `handleImageUploaded()` are fully trait-aware
+
+**What this enables (for future phases):**
+- Add a new trait's AI: just add entry to `manifest.json` + drop ONNX model in `/models/`
+- RunPod fallback (Phase 4): `classifierService.ts` Tier 3 routes to RunPod
+- No code changes needed to support new traits — manifest-driven
+
+### 4c. CLIP Zero-Shot Classification (Phase 2 — Completed)
+
+**Model:** MobileCLIP2-S0 vision encoder exported to ONNX FP32 (1.7MB)
+
+**How it works:**
+1. CLIP vision encoder runs in-browser via ONNX Runtime Web (WASM)
+2. Precomputed text embeddings for each trait's class labels stored as JSON files (~56KB each)
+3. Image → vision encoder → 512-dim image embedding → cosine similarity with text embeddings → softmax → prediction
+4. Temperature-scaled softmax (τ=0.01) produces sharp probability distributions
+
+**Files:**
+- `frontend/src/services/clipClassifier.ts` — CLIP zero-shot inference engine
+  - Loads vision ONNX model (singleton, lazy)
+  - Loads per-trait precomputed text embeddings from `/models/clip-embeddings/<trait>.json`
+  - Preprocesses images (resize to 256×256, ImageNet normalize, CHW layout)
+  - Computes cosine similarity between image and text embeddings
+  - Returns `LocalPrediction` with softmax confidence scores
+- `backend/scripts/export_clip.py` — Export pipeline
+  - Exports MobileCLIP2-S0 vision encoder to ONNX using `open_clip` + PyTorch
+  - Precomputes L2-normalized text embeddings for all traits in `manifest.json`
+  - Outputs: `mobileclip-s0-vision.onnx` + `clip-embeddings/*.json`
+- `frontend/public/models/mobileclip-s0-vision.onnx` — Vision encoder (1.7MB FP32)
+- `frontend/public/models/clip-embeddings/*.json` — 5 trait embedding files
+
+**Integration with 3-tier architecture:**
+- CLIP is Tier 2 in `classifierService.ts`, between Tier 1 (fine-tuned ONNX) and Tier 3 (API)
+- Accepts predictions at 80% of Tier 1's confidence threshold (e.g., 0.56 instead of 0.70)
+- Falls back to API if CLIP confidence is too low
+- CLIP result stored as fallback even if below threshold — returned with `lowConfidence: true` if API also fails
+- `preloadModels()` now preloads both Tier 1 and CLIP models in parallel
+
+**Supported traits (via tier2_labels in manifest.json):**
+- `ergot_severity` — panicle photos, 5-class honeydew severity
+- `anthracnose_severity` — leaf photos, 5-class lesion severity
+- `flowering_stage` — plot overview photos, 5-class flowering progression
+- `compactness_score` — panicle photos, 5-class panicle density
+- `fertility_score` — panicle photos, 5-class seed set
+
+**Adding a new trait:** Add `tier2_labels` to `manifest.json`, re-run `export_clip.py` to generate embeddings. No frontend code changes needed.
+
+---
+
+### 4d. Cloud API Classification (Original — on main branch)
+
 ### Ergot Severity Prediction
 
 **Trigger:** Automatically after uploading a panicle photo (if severity not already scored)
@@ -356,34 +493,15 @@ Cascade deletes: Trial -> Plots -> Observations + Images
 
 ---
 
-## 13. Future Optimizations
+## 13. Future Roadmap
 
-### Custom TensorFlow.js Model for Ergot Severity
+### In-Browser AI Classification — PARTIALLY IMPLEMENTED
+See Section 4a above. MobileNetV3 ONNX model runs in-browser for ergot severity.
+Full multi-trait architecture planned in `PRD_AI_CLASSIFICATION.md`.
 
-**Current approach:** Gemini 2.5 Flash API (~$0.001-0.01/image, requires internet)
-
-**Future optimization:** Train a custom TensorFlow.js model that runs entirely in the browser:
-
-**Benefits:**
-- **Zero cost** after deployment (no API calls)
-- **Offline-capable** — works without internet after first load
-- **Faster** — <1s inference vs 2-5s API latency
-- **Privacy** — images never leave the device
-- **Higher accuracy** — trained specifically on sorghum ergot data
-
-**Requirements:**
-- Collect 500-1000 labeled ergot images (100-200 per severity level 1-5)
-- Train a lightweight CNN (MobileNetV3 or EfficientNet-Lite) using TensorFlow/PyTorch
-- Export to TensorFlow.js format (~5MB model file)
-- Load model in browser, run inference on phone GPU
-
-**Implementation path:**
-1. Use existing 27 reference images + newly labeled field photos
-2. Train model using transfer learning from ImageNet
-3. Export to TF.js: `tensorflowjs_converter --input_format=tf_saved_model`
-4. Update `frontend/src/components/ImageCapture.tsx` to load model and run inference
-5. Keep Gemini API as optional fallback for edge cases
-
-**Estimated effort:** 1-2 days (data prep + training + integration)
-
-**ROI:** Pays for itself after ~1000 classifications; essential for large-scale trials (>240 plots/trial)
+### Planned AI Expansion (see PRD_AI_CLASSIFICATION.md for full details)
+- **CLIP zero-shot:** MobileCLIP-S0 (~12MB) for instant AI on any categorical trait without training
+- **RunPod serverless:** Self-hosted Qwen2-VL-7B as mid-cost fallback tier
+- **Multi-trait models:** Separate fine-tuned models per trait (anthracnose, compactness, fertility, etc.)
+- **Training management dashboard:** Admin UI to upload reference images, trigger training, view accuracy
+- **Model registry:** `manifest.json` for dynamic model loading per trait per trial

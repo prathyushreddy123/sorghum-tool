@@ -10,7 +10,7 @@ import HeightMeasure from '../components/HeightMeasure';
 import ImageCapture from '../components/ImageCapture';
 import Snackbar from '../components/Snackbar';
 import QRScannerModal from '../components/QRScannerModal';
-import { classifySeverity } from '../services/classifierService';
+import { classifyTrait, preloadModels, modelManager } from '../services/classifierService';
 import { useWeather } from '../hooks/useWeather';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 
@@ -90,6 +90,14 @@ export default function ObservationEntry() {
       setTrialTraits(traits);
       setRounds(roundsList);
 
+      // Preload AI models for categorical traits (fire-and-forget)
+      const categoricalTraitNames = traits
+        .filter(tt => tt.trait.data_type === 'categorical')
+        .map(tt => tt.trait.name);
+      if (categoricalTraitNames.length > 0) {
+        preloadModels(categoricalTraitNames).catch(() => {});
+      }
+
       // Determine active round
       let activeRoundId: number | null = null;
       if (roundIdParam) {
@@ -141,81 +149,119 @@ export default function ObservationEntry() {
 
   // Track blob and uploaded image for two-phase classification
   const pendingBlobRef = useRef<Blob | null>(null);
-  const localResultRef = useRef<Awaited<ReturnType<typeof classifySeverity>> | null>(null);
+  const localResultRef = useRef<Awaited<ReturnType<typeof classifyTrait>> | null>(null);
+  // The trait being classified (set when photo is captured)
+  const classifyingTraitRef = useRef<{ traitId: number; traitName: string } | null>(null);
+
+  // AI-supported traits (resolved from manifest)
+  const [aiTraitNames, setAiTraitNames] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    // Check which categorical traits have AI support
+    async function checkAISupport() {
+      const supported = new Set<string>();
+      for (const tt of trialTraits) {
+        if (tt.trait.data_type === 'categorical') {
+          const has = await modelManager.hasAISupport(tt.trait.name);
+          if (has) supported.add(tt.trait.name);
+        }
+      }
+      setAiTraitNames(supported);
+    }
+    if (trialTraits.length > 0) checkAISupport();
+  }, [trialTraits]);
+
+  /**
+   * Find the categorical trait that matches a given photo type.
+   * Falls back to first AI-supported categorical trait if no photo_type match.
+   */
+  async function findTraitForPhoto(photoType: string): Promise<{ traitId: number; traitName: string } | null> {
+    // First: find a trait whose manifest photo_type matches
+    for (const tt of trialTraits) {
+      if (tt.trait.data_type !== 'categorical') continue;
+      const entry = await modelManager.getTraitEntry(tt.trait.name);
+      if (entry && entry.photo_type === photoType && !traitValues[tt.trait_id]) {
+        return { traitId: tt.trait_id, traitName: tt.trait.name };
+      }
+    }
+    // Fallback: first AI-supported categorical trait without a value
+    for (const tt of trialTraits) {
+      if (tt.trait.data_type !== 'categorical') continue;
+      if (traitValues[tt.trait_id]) continue;
+      if (aiTraitNames.has(tt.trait.name)) {
+        return { traitId: tt.trait_id, traitName: tt.trait.name };
+      }
+    }
+    return null;
+  }
 
   // Phase 1: Local classification starts immediately from compressed blob
-  async function handleImageCaptured(blob: Blob) {
-    const firstCategorical = trialTraits.find(tt => tt.trait.data_type === 'categorical');
-    if (!firstCategorical || traitValues[firstCategorical.trait_id]) return;
+  async function handleImageCaptured(blob: Blob, photoType?: string) {
+    const target = await findTraitForPhoto(photoType || 'panicle');
+    if (!target) return;
 
     pendingBlobRef.current = blob;
     localResultRef.current = null;
+    classifyingTraitRef.current = target;
     setAiLoading(true);
 
     try {
-      // Run local model (no imageId yet — blob only)
-      const result = await classifySeverity(blob);
+      const result = await classifyTrait(target.traitName, blob);
       localResultRef.current = result;
 
       if (result.provider === 'local' && !result.lowConfidence) {
-        // High confidence local result — use immediately
-        setTraitValue(firstCategorical.trait_id, String(result.severity));
+        setTraitValue(target.traitId, result.value);
         setAiResult({
-          traitId: firstCategorical.trait_id,
-          value: String(result.severity),
+          traitId: target.traitId,
+          value: result.value,
           confidence: result.confidence,
           reasoning: result.reasoning,
         });
         setAiLoading(false);
       }
-      // If low confidence, keep loading — wait for API fallback in handleImageUploaded
     } catch (err) {
       console.warn('Local classification failed:', err);
-      // Don't show error yet — API fallback will try in handleImageUploaded
     }
   }
 
   // Phase 2: After upload completes, retry with API if local was low-confidence
   async function handleImageUploaded(image: PlotImage) {
-    const firstCategorical = trialTraits.find(tt => tt.trait.data_type === 'categorical');
-    if (!firstCategorical || traitValues[firstCategorical.trait_id]) {
+    const target = classifyingTraitRef.current;
+    if (!target || traitValues[target.traitId]) {
       setAiLoading(false);
       return;
     }
 
     const localResult = localResultRef.current;
-
-    // If local model already gave high-confidence result, we're done
     if (localResult && localResult.provider === 'local' && !localResult.lowConfidence) {
       return;
     }
 
     setAiLoading(true);
     try {
-      // Re-run classifier with imageId so API fallback is available
       const blob = pendingBlobRef.current;
       if (blob) {
-        const result = await classifySeverity(blob, image.id);
-        if (result.severity >= 1) {
-          setTraitValue(firstCategorical.trait_id, String(result.severity));
-          setAiResult({
-            traitId: firstCategorical.trait_id,
-            value: String(result.severity),
-            confidence: result.confidence,
-            reasoning: result.reasoning,
-          });
-        }
+        const result = await classifyTrait(target.traitName, blob, image.id);
+        setTraitValue(target.traitId, result.value);
+        setAiResult({
+          traitId: target.traitId,
+          value: result.value,
+          confidence: result.confidence,
+          reasoning: result.reasoning,
+        });
       } else {
-        // No blob — fall back to API-only (legacy path)
-        const prediction = await api.predictSeverity(image.id);
-        if (prediction.severity >= 1) {
-          setTraitValue(firstCategorical.trait_id, String(prediction.severity));
-          setAiResult({
-            traitId: firstCategorical.trait_id,
-            value: String(prediction.severity),
-            confidence: prediction.confidence,
-            reasoning: prediction.reasoning,
-          });
+        // No blob — fall back to API-only (legacy path for ergot)
+        if (target.traitName === 'ergot_severity') {
+          const prediction = await api.predictSeverity(image.id);
+          if (prediction.severity >= 1) {
+            setTraitValue(target.traitId, String(prediction.severity));
+            setAiResult({
+              traitId: target.traitId,
+              value: String(prediction.severity),
+              confidence: prediction.confidence,
+              reasoning: prediction.reasoning,
+            });
+          }
         }
       }
     } catch (err) {
@@ -223,24 +269,22 @@ export default function ObservationEntry() {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('503') || msg.includes('unavailable')) {
         setAiResult(null);
+      } else if (localResult) {
+        setTraitValue(target.traitId, localResult.value);
+        setAiResult({
+          traitId: target.traitId,
+          value: localResult.value,
+          confidence: localResult.confidence,
+          reasoning: localResult.reasoning,
+        });
       } else {
-        // If local gave a low-confidence result, use it rather than showing error
-        if (localResult && localResult.severity >= 1) {
-          setTraitValue(firstCategorical.trait_id, String(localResult.severity));
-          setAiResult({
-            traitId: firstCategorical.trait_id,
-            value: String(localResult.severity),
-            confidence: localResult.confidence,
-            reasoning: localResult.reasoning,
-          });
-        } else {
-          setError(`AI prediction failed: ${msg}`);
-        }
+        setError(`AI prediction failed: ${msg}`);
       }
     } finally {
       setAiLoading(false);
       pendingBlobRef.current = null;
       localResultRef.current = null;
+      classifyingTraitRef.current = null;
     }
   }
 
@@ -283,17 +327,23 @@ export default function ObservationEntry() {
       });
       refreshPending();
 
-      // Fire-and-forget: submit training sample if there's a photo + severity
-      const firstCategorical = trialTraits.find(tt => tt.trait.data_type === 'categorical');
-      if (firstCategorical && traitValues[firstCategorical.trait_id] && navigator.onLine) {
-        api.getImages(pId, 'panicle').then(imgs => {
-          if (imgs.length > 0) {
-            const severity = Number(traitValues[firstCategorical.trait_id]);
-            if (severity >= 1 && severity <= 5) {
-              api.submitTrainingSample(imgs[0].id, severity, 'user_label').catch(() => {});
-            }
-          }
-        }).catch(() => {});
+      // Fire-and-forget: submit training samples for AI-supported categorical traits
+      if (navigator.onLine) {
+        for (const tt of trialTraits) {
+          if (tt.trait.data_type !== 'categorical' || !aiTraitNames.has(tt.trait.name)) continue;
+          const val = traitValues[tt.trait_id];
+          if (!val) continue;
+          const severity = Number(val);
+          if (severity < 1 || severity > 9) continue;
+          // Get the photo type for this trait from manifest
+          modelManager.getPhotoType(tt.trait.name).then(photoType => {
+            api.getImages(pId, photoType || 'panicle').then(imgs => {
+              if (imgs.length > 0) {
+                api.submitTrainingSample(imgs[0].id, severity, 'user_label').catch(() => {});
+              }
+            }).catch(() => {});
+          }).catch(() => {});
+        }
       }
 
       const roundName = rounds.find(r => r.id === selectedRoundId)?.name || '';
@@ -534,10 +584,17 @@ export default function ObservationEntry() {
           </div>
         )}
 
-        {/* Image capture (for first image-relevant categorical trait) */}
+        {/* Image capture (for AI-supported categorical traits) */}
         {trialTraits.some(tt => tt.trait.data_type === 'categorical') && (
           <div className="mb-4">
-            <label className="block text-sm font-medium text-neutral mb-2">Photo</label>
+            <div className="flex items-center gap-2 mb-2">
+              <label className="block text-sm font-medium text-neutral">Photo</label>
+              {aiTraitNames.size > 0 && (
+                <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium">
+                  AI: {Array.from(aiTraitNames).map(n => n.replace(/_/g, ' ')).join(', ')}
+                </span>
+              )}
+            </div>
             <ImageCapture plotId={pId} imageType="panicle" buttonLabel="Take Photo" onImageCaptured={handleImageCaptured} onImageUploaded={handleImageUploaded} />
           </div>
         )}

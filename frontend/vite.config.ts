@@ -38,11 +38,20 @@ export default defineConfig({
             },
           },
           {
+            urlPattern: /\/models\/manifest\.json$/,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'ml-manifest-cache',
+              expiration: { maxEntries: 1, maxAgeSeconds: 60 * 60 * 24 },
+              networkTimeoutSeconds: 3,
+            },
+          },
+          {
             urlPattern: /\/models\/.*\.onnx$/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'ml-model-cache',
-              expiration: { maxEntries: 5, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              expiration: { maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 30 },
               cacheableResponse: { statuses: [0, 200] },
             },
           },

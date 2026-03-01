@@ -27,6 +27,7 @@ import type {
   TrainingJob,
   TrainingSampleStats,
   ReferenceImage,
+  ReviewQueueItem,
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://127.0.0.1:8000';
@@ -326,12 +327,27 @@ export const api = {
 
   getImageUrl: (filename: string) => `${API_BASE}/images/${filename}`,
 
-  submitTrainingSample: (imageId: number, traitName: string, value: string, source: string) =>
+  submitTrainingSample: (imageId: number, traitName: string, value: string, source: string, aiPredictedValue?: string, aiConfidence?: number) =>
     request<{ id: number }>('/training/samples', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_id: imageId, trait_name: traitName, value, source }),
+      body: JSON.stringify({
+        image_id: imageId,
+        trait_name: traitName,
+        value,
+        source,
+        ...(aiPredictedValue !== undefined && { ai_predicted_value: aiPredictedValue }),
+        ...(aiConfidence !== undefined && { ai_confidence: aiConfidence }),
+      }),
     }),
+
+  getReviewQueue: (traitName?: string, limit = 50, offset = 0) => {
+    const params = new URLSearchParams();
+    if (traitName) params.set('trait_name', traitName);
+    params.set('limit', String(limit));
+    params.set('offset', String(offset));
+    return request<ReviewQueueItem[]>(`/training/review-queue?${params}`);
+  },
 
   // ─── Training Jobs ──────────────────────────────────────────────────────────
   getTrainingJobs: (traitName?: string) => {

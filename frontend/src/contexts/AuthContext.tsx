@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from 'rea
 import type { ReactNode } from 'react';
 import type { User } from '../types';
 import { api } from '../api/client';
+import { clearAll as clearOfflineCache } from '../db/offlineApi';
 
 interface AuthContextType {
   user: User | null;
@@ -19,6 +20,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     localStorage.removeItem('auth_token');
+    clearOfflineCache().catch(() => {});
     setUser(null);
   }, []);
 

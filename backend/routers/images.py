@@ -6,11 +6,12 @@ from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 import crud
+from auth import require_user, get_authorized_plot, check_trial_access
 from database import get_db
-from models import Image
+from models import Image, Plot, User
 from schemas import HeightPredictionResponse, ImageResponse, SeverityPredictionResponse
 from services.ai_classifier import predict_height, predict_severity
-from services.storage import get_storage, LocalStorage
+from services.storage import get_storage, LocalStorage, SupabaseStorage
 
 router = APIRouter(tags=["images"])
 
@@ -27,17 +28,22 @@ MIME_MAP = {
 }
 
 
+def _check_image_access(db: Session, image: Image, user: User) -> None:
+    """Verify user has access to an image via plot → trial ownership."""
+    plot = crud.get_plot(db, image.plot_id)
+    if not plot:
+        raise HTTPException(status_code=404, detail="Plot not found")
+    check_trial_access(db, plot.trial_id, user)
+
+
 @router.post("/plots/{plot_id}/images", response_model=ImageResponse, status_code=201)
 async def upload_image(
     plot_id: int,
     file: UploadFile = File(...),
     image_type: str = Query("panicle", pattern="^(panicle|full_plant)$"),
     db: Session = Depends(get_db),
+    plot: Plot = Depends(get_authorized_plot),
 ):
-    plot = crud.get_plot(db, plot_id)
-    if not plot:
-        raise HTTPException(status_code=404, detail="Plot not found")
-
     if file.content_type not in ALLOWED_TYPES:
         raise HTTPException(
             status_code=422, detail=f"Unsupported file type: {file.content_type}"
@@ -53,7 +59,7 @@ async def upload_image(
     storage = get_storage()
     storage.save(filename, contents)
 
-    return crud.create_image(db, plot_id, filename, file.filename or "image.jpg", image_type=image_type)
+    return crud.create_image(db, plot.id, filename, file.filename or "image.jpg", image_type=image_type)
 
 
 @router.get("/plots/{plot_id}/images", response_model=list[ImageResponse])
@@ -61,18 +67,21 @@ def list_images(
     plot_id: int,
     image_type: str | None = Query(None, pattern="^(panicle|full_plant)$"),
     db: Session = Depends(get_db),
+    plot: Plot = Depends(get_authorized_plot),
 ):
-    plot = crud.get_plot(db, plot_id)
-    if not plot:
-        raise HTTPException(status_code=404, detail="Plot not found")
-    return crud.get_images(db, plot_id, image_type=image_type)
+    return crud.get_images(db, plot.id, image_type=image_type)
 
 
 @router.delete("/images/{image_id}")
-def delete_image(image_id: int, db: Session = Depends(get_db)):
+def delete_image(
+    image_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
+    _check_image_access(db, image, user)
 
     storage = get_storage()
     storage.delete(image.filename)
@@ -82,6 +91,7 @@ def delete_image(image_id: int, db: Session = Depends(get_db)):
     return {"success": True}
 
 
+# Image file serving — no auth (UUID filenames are unguessable, <img src> can't send headers)
 @router.get("/images/{filename}")
 def serve_image(filename: str):
     storage = get_storage()
@@ -90,9 +100,8 @@ def serve_image(filename: str):
             raise HTTPException(status_code=404, detail="Image not found")
         return FileResponse(storage._path(filename))
     else:
-        # For cloud storage, redirect to signed URL
-        if not storage.exists(filename):
-            raise HTTPException(status_code=404, detail="Image not found")
+        # For cloud storage (Supabase/GCS), redirect to public URL.
+        # Supabase/GCS returns 404 if file doesn't exist, so skip exists() check.
         url = storage.get_url(filename)
         return RedirectResponse(url=url)
 
@@ -101,17 +110,21 @@ def serve_image(filename: str):
     "/images/{image_id}/predict-severity",
     response_model=SeverityPredictionResponse,
 )
-async def predict_image_severity(image_id: int, db: Session = Depends(get_db)):
+async def predict_image_severity(
+    image_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
+    _check_image_access(db, image, user)
 
     storage = get_storage()
     if not storage.exists(image.filename):
         raise HTTPException(status_code=404, detail="Image file not found")
 
     image_bytes = storage.get_bytes(image.filename)
-
     ext = os.path.splitext(image.filename)[1].lower()
     mime_type = MIME_MAP.get(ext, "image/jpeg")
 
@@ -129,17 +142,21 @@ async def predict_image_severity(image_id: int, db: Session = Depends(get_db)):
     "/images/{image_id}/predict-height",
     response_model=HeightPredictionResponse,
 )
-async def predict_image_height(image_id: int, db: Session = Depends(get_db)):
+async def predict_image_height(
+    image_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
     image = db.query(Image).filter(Image.id == image_id).first()
     if not image:
         raise HTTPException(status_code=404, detail="Image not found")
+    _check_image_access(db, image, user)
 
     storage = get_storage()
     if not storage.exists(image.filename):
         raise HTTPException(status_code=404, detail="Image file not found")
 
     image_bytes = storage.get_bytes(image.filename)
-
     ext = os.path.splitext(image.filename)[1].lower()
     mime_type = MIME_MAP.get(ext, "image/jpeg")
 

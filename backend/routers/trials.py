@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 import crud
-from auth import get_current_user
+from auth import get_current_user, require_user, get_authorized_trial
 from database import get_db
-from models import User
+from models import Trial, User
 from schemas import WALK_MODES, TrialCloneRequest, TrialCreate, TrialResponse, TrialUpdate
 
 router = APIRouter(prefix="/trials", tags=["trials"])
@@ -32,7 +32,6 @@ def list_trials(
         user_id=current_user.id if current_user and team_id is None else None,
         team_id=team_id,
     )
-    # Batch-fetch plot/scored counts for all trials in 2 queries (was 2 per trial)
     counts = crud.get_trial_plot_counts_bulk(db, [t.id for t in trials])
     results = []
     for t in trials:
@@ -49,7 +48,7 @@ def list_trials(
 def create_trial(
     data: TrialCreate,
     db: Session = Depends(get_db),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(require_user),
 ):
     trial = crud.create_trial(
         db,
@@ -59,7 +58,7 @@ def create_trial(
         start_date=data.start_date,
         end_date=data.end_date,
         walk_mode=data.walk_mode,
-        user_id=current_user.id if current_user else None,
+        user_id=current_user.id,
         team_id=data.team_id,
         trait_ids=data.trait_ids,
         first_round_name=data.first_round_name,
@@ -68,18 +67,21 @@ def create_trial(
 
 
 @router.get("/{trial_id}", response_model=TrialResponse)
-def get_trial(trial_id: int, db: Session = Depends(get_db)):
-    trial = crud.get_trial(db, trial_id)
-    if not trial:
-        raise HTTPException(status_code=404, detail="Trial not found")
+def get_trial(
+    trial_id: int,
+    db: Session = Depends(get_db),
+    trial: Trial = Depends(get_authorized_trial),
+):
     return _enrich_trial_response(db, trial)
 
 
 @router.patch("/{trial_id}", response_model=TrialResponse)
-def update_trial(trial_id: int, data: TrialUpdate, db: Session = Depends(get_db)):
-    trial = crud.get_trial(db, trial_id)
-    if not trial:
-        raise HTTPException(status_code=404, detail="Trial not found")
+def update_trial(
+    trial_id: int,
+    data: TrialUpdate,
+    db: Session = Depends(get_db),
+    trial: Trial = Depends(get_authorized_trial),
+):
     if data.walk_mode is not None:
         if data.walk_mode not in WALK_MODES:
             raise HTTPException(status_code=422, detail=f"walk_mode must be one of {WALK_MODES}")
@@ -90,9 +92,12 @@ def update_trial(trial_id: int, data: TrialUpdate, db: Session = Depends(get_db)
 
 
 @router.delete("/{trial_id}")
-def delete_trial(trial_id: int, db: Session = Depends(get_db)):
-    if not crud.delete_trial(db, trial_id):
-        raise HTTPException(status_code=404, detail="Trial not found")
+def delete_trial(
+    trial_id: int,
+    db: Session = Depends(get_db),
+    trial: Trial = Depends(get_authorized_trial),
+):
+    crud.delete_trial(db, trial.id)
     return {"success": True}
 
 
@@ -101,10 +106,12 @@ def clone_trial(
     trial_id: int,
     data: TrialCloneRequest,
     db: Session = Depends(get_db),
+    trial: Trial = Depends(get_authorized_trial),
+    current_user: User = Depends(require_user),
 ):
     cloned = crud.clone_trial(
         db,
-        source_trial_id=trial_id,
+        source_trial_id=trial.id,
         name=data.name,
         location=data.location,
         start_date=data.start_date,
@@ -113,4 +120,7 @@ def clone_trial(
     )
     if not cloned:
         raise HTTPException(status_code=404, detail="Source trial not found")
+    cloned.user_id = current_user.id
+    db.commit()
+    db.refresh(cloned)
     return _enrich_trial_response(db, cloned)

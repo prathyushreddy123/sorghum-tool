@@ -72,3 +72,65 @@ def require_admin(user: User = Depends(require_user)) -> User:
             detail="Admin access required",
         )
     return user
+
+
+def check_trial_access(db: Session, trial_id: int, user: User) -> None:
+    """Inline helper: verify user has access to a trial. Raises 403 if not."""
+    from models import Trial
+    import crud
+
+    trial = db.query(Trial).filter(Trial.id == trial_id).first()
+    if not trial:
+        raise HTTPException(status_code=404, detail="Trial not found")
+    if trial.user_id == user.id:
+        return
+    if trial.team_id and crud.is_team_member(db, trial.team_id, user.id):
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+
+def get_authorized_trial(
+    trial_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+) -> "Trial":
+    """Load trial and verify user owns it or is on its team."""
+    from models import Trial
+    import crud
+
+    trial = db.query(Trial).filter(Trial.id == trial_id).first()
+    if not trial:
+        raise HTTPException(status_code=404, detail="Trial not found")
+    if trial.user_id == user.id:
+        return trial
+    if trial.team_id and crud.is_team_member(db, trial.team_id, user.id):
+        return trial
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Access denied",
+    )
+
+
+def get_authorized_plot(
+    plot_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+) -> "Plot":
+    """Load plot and verify user has access to its trial."""
+    from models import Plot, Trial
+    import crud
+
+    plot = db.query(Plot).filter(Plot.id == plot_id).first()
+    if not plot:
+        raise HTTPException(status_code=404, detail="Plot not found")
+    trial = db.query(Trial).filter(Trial.id == plot.trial_id).first()
+    if not trial:
+        raise HTTPException(status_code=404, detail="Trial not found")
+    if trial.user_id == user.id:
+        return plot
+    if trial.team_id and crud.is_team_member(db, trial.team_id, user.id):
+        return plot
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Access denied",
+    )

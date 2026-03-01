@@ -205,13 +205,16 @@ class Image(Base):
 class TrainingSample(Base):
     """A labeled image+trait_name+value tuple collected for model training."""
     __tablename__ = "training_samples"
-    __table_args__ = (UniqueConstraint("image_id", "trait_name", name="uq_training_sample_trait"),)
+    __table_args__ = (UniqueConstraint("image_id", "trait_name", "crop", name="uq_training_sample_trait_crop"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     image_id: Mapped[int] = mapped_column(Integer, ForeignKey("images.id"), nullable=False, index=True)
     trait_name: Mapped[str] = mapped_column(String, nullable=False)  # e.g. "ergot_severity"
     value: Mapped[str] = mapped_column(String, nullable=False)       # e.g. "3"
-    source: Mapped[str] = mapped_column(String, nullable=False, default="user_label")  # user_label|ai_confirmed
+    crop: Mapped[str] = mapped_column(String, nullable=False, default="sorghum")
+    source: Mapped[str] = mapped_column(String, nullable=False, default="user_label")  # user_label|ai_confirmed|user_corrected
+    ai_predicted_value: Mapped[str | None] = mapped_column(String, nullable=True)  # what AI originally predicted
+    ai_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)      # AI's confidence for that prediction
     labeled_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     image: Mapped["Image"] = relationship()
@@ -223,13 +226,16 @@ class TrainingJob(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     trait_name: Mapped[str] = mapped_column(String, nullable=False)
+    crop: Mapped[str] = mapped_column(String, nullable=False, default="sorghum")
     status: Mapped[str] = mapped_column(String, nullable=False, default="queued")  # queued|running|completed|failed|cancelled
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     config: Mapped[str | None] = mapped_column(String, nullable=True)         # JSON string
     metrics: Mapped[str | None] = mapped_column(String, nullable=True)        # JSON string
-    model_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    model_path: Mapped[str | None] = mapped_column(String, nullable=True)     # legacy local path
+    model_url: Mapped[str | None] = mapped_column(String, nullable=True)      # Supabase Storage public URL
+    runpod_job_id: Mapped[str | None] = mapped_column(String, nullable=True)  # RunPod serverless job ID
     error_message: Mapped[str | None] = mapped_column(String, nullable=True)
     sample_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

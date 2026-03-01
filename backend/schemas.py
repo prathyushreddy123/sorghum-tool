@@ -344,7 +344,10 @@ class TrainingSampleCreate(BaseModel):
     image_id: int
     trait_name: str = Field(..., min_length=1)
     value: str = Field(..., min_length=1)
+    crop: str = "sorghum"
     source: str = "user_label"
+    ai_predicted_value: str | None = None
+    ai_confidence: float | None = None
 
 
 class TrainingSampleResponse(BaseModel):
@@ -352,8 +355,26 @@ class TrainingSampleResponse(BaseModel):
     image_id: int
     trait_name: str
     value: str
+    crop: str
+    source: str
+    ai_predicted_value: str | None = None
+    ai_confidence: float | None = None
+    labeled_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ReviewQueueItem(BaseModel):
+    id: int
+    image_id: int
+    trait_name: str
+    value: str  # user's corrected value
+    ai_predicted_value: str | None
+    ai_confidence: float | None
     source: str
     labeled_at: datetime
+    image_filename: str
+    plot_id: int
 
     model_config = {"from_attributes": True}
 
@@ -369,12 +390,14 @@ class TrainingSampleStats(BaseModel):
 
 class TrainingJobCreate(BaseModel):
     trait_name: str = Field(..., min_length=1)
+    crop: str = "sorghum"
     config: dict | None = None  # optional training config overrides
 
 
 class TrainingJobResponse(BaseModel):
     id: int
     trait_name: str
+    crop: str
     status: str
     created_at: datetime
     started_at: datetime | None
@@ -382,10 +405,20 @@ class TrainingJobResponse(BaseModel):
     config: str | None
     metrics: str | None
     model_path: str | None
+    model_url: str | None
     error_message: str | None
     sample_count: int | None
 
     model_config = {"from_attributes": True}
+
+
+class TrainingJobCompleteCallback(BaseModel):
+    """Callback payload from RunPod when training finishes."""
+    success: bool
+    model_url: str | None = None
+    metrics: dict | None = None
+    error_message: str | None = None
+    secret: str  # TRAINING_CALLBACK_SECRET for auth
 
 
 class HeightPredictionResponse(BaseModel):

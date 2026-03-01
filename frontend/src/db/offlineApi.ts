@@ -611,3 +611,19 @@ export async function isTrialCached(trialId: number): Promise<boolean> {
   const plots = await db.plots.where('trial_id').equals(trialId).count();
   return plots > 0 && isFresh(trial._cachedAt);
 }
+
+/**
+ * Clear all cached data from IndexedDB.
+ * Call on logout to prevent data leaking between user sessions.
+ */
+export async function clearAll(): Promise<void> {
+  await Promise.all([
+    db.trials.clear(),
+    db.plots.clear(),
+    db.traits.clear(),
+    db.trialTraits.clear(),
+    db.scoringRounds.clear(),
+    db.observations.clear(),
+    db.pendingSync.clear(),
+  ]);
+}

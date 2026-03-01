@@ -52,7 +52,8 @@ class CLIPClassifier {
     if (this.embeddingsCache.has(traitName)) return this.embeddingsCache.get(traitName)!;
     if (this.embeddingsLoading.has(traitName)) return this.embeddingsLoading.get(traitName)!;
 
-    const promise = fetch(`/models/clip-embeddings/${traitName}.json`)
+    const modelsBase = import.meta.env.VITE_MODELS_BASE_URL || '/models';
+    const promise = fetch(`${modelsBase}/clip-embeddings/${traitName}.json`)
       .then(res => {
         if (!res.ok) throw new Error(`Embeddings fetch failed: ${res.status}`);
         return res.json() as Promise<TraitEmbeddings>;

@@ -333,13 +333,26 @@ export default function ObservationEntry() {
           if (tt.trait.data_type !== 'categorical' || !aiTraitNames.has(tt.trait.name)) continue;
           const val = traitValues[tt.trait_id];
           if (!val) continue;
-          const severity = Number(val);
-          if (severity < 1 || severity > 9) continue;
+          const numVal = Number(val);
+          if (numVal < 1 || numVal > 9) continue;
+
+          // Detect if user overrode AI prediction
+          const aiPrediction = aiResult && aiResult.traitId === tt.trait_id ? aiResult : null;
+          const userCorrected = aiPrediction && aiPrediction.value !== val;
+          const source = userCorrected ? 'user_corrected' : aiPrediction ? 'ai_confirmed' : 'user_label';
+
           // Get the photo type for this trait from manifest
           modelManager.getPhotoType(tt.trait.name).then(photoType => {
-            api.getImages(pId, photoType || 'panicle').then(imgs => {
+            api.getImages(pId, (photoType || 'panicle') as 'panicle' | 'full_plant').then(imgs => {
               if (imgs.length > 0) {
-                api.submitTrainingSample(imgs[0].id, tt.trait.name, String(severity), 'user_label').catch(() => {});
+                api.submitTrainingSample(
+                  imgs[0].id,
+                  tt.trait.name,
+                  String(numVal),
+                  source,
+                  aiPrediction?.value,
+                  aiPrediction?.confidence,
+                ).catch(() => {});
               }
             }).catch(() => {});
           }).catch(() => {});

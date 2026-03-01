@@ -66,21 +66,25 @@ except Exception as e:
 
 logging.basicConfig(level=logging.INFO)
 
-# Start training job runner
-from services.training_runner import start_training_runner, stop_training_runner
-
-try:
-    start_training_runner()
-    logger.info("Training job runner started.")
-except Exception as e:
-    logger.warning(f"Training runner failed to start: {e}")
+# Start local training runner only if RunPod is NOT configured (dev mode)
+if not settings.RUNPOD_ENDPOINT_ID:
+    from services.training_runner import start_training_runner, stop_training_runner
+    try:
+        start_training_runner()
+        logger.info("Training job runner started (local dev mode).")
+    except Exception as e:
+        logger.warning(f"Training runner failed to start: {e}")
+else:
+    logger.info("RunPod configured — local training runner disabled.")
 
 app = FastAPI(title="FieldScout API", version="0.2.0")
 
 
 @app.on_event("shutdown")
 def shutdown_training_runner():
-    stop_training_runner()
+    if not settings.RUNPOD_ENDPOINT_ID:
+        from services.training_runner import stop_training_runner
+        stop_training_runner()
 
 
 @app.exception_handler(Exception)

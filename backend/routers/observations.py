@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 import crud
+from auth import require_user, get_authorized_trial, get_authorized_plot, check_trial_access
 from database import get_db
+from models import Plot, Trial, User
 from schemas import (
     ObservationBulkCreate,
     ObservationCreate,
@@ -18,11 +20,9 @@ def list_observations(
     plot_id: int,
     round_id: int | None = Query(None),
     db: Session = Depends(get_db),
+    plot: Plot = Depends(get_authorized_plot),
 ):
-    plot = crud.get_plot(db, plot_id)
-    if not plot:
-        raise HTTPException(status_code=404, detail="Plot not found")
-    return crud.get_observations(db, plot_id, round_id=round_id)
+    return crud.get_observations(db, plot.id, round_id=round_id)
 
 
 @router.get(
@@ -33,19 +33,22 @@ def list_trial_observations(
     trial_id: int,
     round_id: int | None = Query(None),
     db: Session = Depends(get_db),
+    trial: Trial = Depends(get_authorized_trial),
 ):
     """Fetch all observations for a trial in one request (used by offline prefetch)."""
-    trial = crud.get_trial(db, trial_id)
-    if not trial:
-        raise HTTPException(status_code=404, detail="Trial not found")
-    return crud.get_trial_observations(db, trial_id, round_id=round_id)
+    return crud.get_trial_observations(db, trial.id, round_id=round_id)
 
 
 @router.post("/observations", response_model=ObservationResponse, status_code=201)
-def create_observation(data: ObservationCreate, db: Session = Depends(get_db)):
+def create_observation(
+    data: ObservationCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
     plot = crud.get_plot(db, data.plot_id)
     if not plot:
         raise HTTPException(status_code=404, detail="Plot not found")
+    check_trial_access(db, plot.trial_id, user)
 
     # Resolve trait
     trait = None
@@ -80,10 +83,21 @@ def create_observation(data: ObservationCreate, db: Session = Depends(get_db)):
 
 
 @router.put("/observations/{observation_id}", response_model=ObservationResponse)
-def update_observation(observation_id: int, data: ObservationUpdate, db: Session = Depends(get_db)):
+def update_observation(
+    observation_id: int,
+    data: ObservationUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_user),
+):
     existing = crud.update_observation(db, observation_id)  # fetch to check existence
     if not existing:
         raise HTTPException(status_code=404, detail="Observation not found")
+
+    # Check ownership: observation → plot → trial
+    plot = crud.get_plot(db, existing.plot_id)
+    if not plot:
+        raise HTTPException(status_code=404, detail="Plot not found")
+    check_trial_access(db, plot.trial_id, user)
 
     if data.value is not None:
         trait = crud.get_trait(db, existing.trait_id) if existing.trait_id else None
@@ -97,12 +111,11 @@ def update_observation(observation_id: int, data: ObservationUpdate, db: Session
 
 @router.post("/plots/{plot_id}/observations/bulk", response_model=list[ObservationResponse])
 def bulk_create_observations(
-    plot_id: int, data: ObservationBulkCreate, db: Session = Depends(get_db)
+    plot_id: int,
+    data: ObservationBulkCreate,
+    db: Session = Depends(get_db),
+    plot: Plot = Depends(get_authorized_plot),
 ):
-    plot = crud.get_plot(db, plot_id)
-    if not plot:
-        raise HTTPException(status_code=404, detail="Plot not found")
-
     # Validate each item
     for item in data.observations:
         trait = crud.get_trait(db, item.trait_id) if item.trait_id else None
@@ -114,5 +127,5 @@ def bulk_create_observations(
             raise HTTPException(status_code=422, detail=error)
 
     items = [item.model_dump() for item in data.observations]
-    results = crud.bulk_create_observations(db, plot_id, items, scoring_round_id=data.scoring_round_id)
+    results = crud.bulk_create_observations(db, plot.id, items, scoring_round_id=data.scoring_round_id)
     return [ObservationResponse.model_validate(r) for r in results]

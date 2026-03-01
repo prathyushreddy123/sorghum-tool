@@ -340,6 +340,19 @@ export interface ReferenceImage {
   path: string;
 }
 
+export interface ReviewQueueItem {
+  id: number;
+  image_id: number;
+  trait_name: string;
+  value: string;            // user's corrected value
+  ai_predicted_value: string | null;
+  ai_confidence: number | null;
+  source: string;
+  labeled_at: string;
+  image_filename: string;
+  plot_id: number;
+}
+
 export interface TrainingMetrics {
   trait_name: string;
   num_classes: number;

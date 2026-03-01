@@ -62,7 +62,8 @@ class ModelManager {
     if (this.manifest) return this.manifest;
     if (this.manifestPromise) return this.manifestPromise;
 
-    this.manifestPromise = fetch('/models/manifest.json')
+    const manifestUrl = import.meta.env.VITE_MANIFEST_URL || '/models/manifest.json';
+    this.manifestPromise = fetch(manifestUrl)
       .then(res => {
         if (!res.ok) throw new Error(`Manifest fetch failed: ${res.status}`);
         return res.json() as Promise<ModelManifest>;
@@ -76,10 +77,15 @@ class ModelManager {
     return this.manifestPromise;
   }
 
-  /** Get the manifest entry for a trait (by trait name/slug). */
-  async getTraitEntry(traitName: string): Promise<TraitModelEntry | null> {
+  /** Get the manifest entry for a trait (by trait name/slug, optionally scoped by crop). */
+  async getTraitEntry(traitName: string, crop?: string): Promise<TraitModelEntry | null> {
     try {
       const manifest = await this.getManifest();
+      // Try crop-specific key first (e.g. "maize/gray_leaf_spot"), then bare trait name
+      if (crop && crop !== 'sorghum') {
+        const cropKey = `${crop}/${traitName}`;
+        if (manifest.models[cropKey]) return manifest.models[cropKey];
+      }
       return manifest.models[traitName] ?? null;
     } catch {
       return null;

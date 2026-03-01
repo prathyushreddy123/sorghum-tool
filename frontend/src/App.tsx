@@ -26,6 +26,14 @@ function PageLoader() {
   );
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role !== 'admin') {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
+
 function ProtectedRoutes() {
   const { user, loading } = useAuth();
 
@@ -55,7 +63,7 @@ function ProtectedRoutes() {
             <Route path="/trials/:trialId/collect/:plotId" element={<ObservationEntry />} />
             <Route path="/teams" element={<TeamManagement />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="/settings/training" element={<TrainingDashboard />} />
+            <Route path="/settings/training" element={<AdminRoute><TrainingDashboard /></AdminRoute>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

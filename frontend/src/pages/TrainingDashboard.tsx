@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
-import type { TrainingJob, TrainingSampleStats, ReferenceImage, TrainingMetrics } from '../types';
+import type { TrainingJob, TrainingSampleStats, ReferenceImage, TrainingMetrics, ReviewQueueItem } from '../types';
 
 interface ManifestModel {
   tier1: { url: string; version: string; accuracy: number | null; classes: string[]; class_labels?: string[] } | null;
@@ -222,22 +222,35 @@ export default function TrainingDashboard() {
   const [jobs, setJobs] = useState<TrainingJob[]>([]);
   const [stats, setStats] = useState<TrainingSampleStats | null>(null);
   const [refImages, setRefImages] = useState<Record<string, ReferenceImage[]>>({});
+  const [reviewQueue, setReviewQueue] = useState<ReviewQueueItem[]>([]);
+  const [reviewFilter, setReviewFilter] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expandedJob, setExpandedJob] = useState<number | null>(null);
 
   const loadData = useCallback(async () => {
     try {
-      const [jobsData, statsData] = await Promise.all([
+      const promises: [Promise<TrainingJob[]>, Promise<TrainingSampleStats>] = [
         api.getTrainingJobs(),
         api.getTrainingSampleStats(),
-      ]);
+      ];
+      const [jobsData, statsData] = await Promise.all(promises);
       setJobs(jobsData);
       setStats(statsData);
+
+      // Load review queue (admin only)
+      if (isAdmin) {
+        try {
+          const queue = await api.getReviewQueue(reviewFilter || undefined);
+          setReviewQueue(queue);
+        } catch {
+          // non-critical
+        }
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load data');
     }
-  }, []);
+  }, [isAdmin, reviewFilter]);
 
   // Load manifest
   useEffect(() => {
@@ -360,6 +373,82 @@ export default function TrainingDashboard() {
           <p className="text-sm text-gray-400">No manifest found</p>
         )}
       </div>
+
+      {/* Review Queue — images AI got wrong (admin only) */}
+      {isAdmin && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold text-neutral">
+              Review Queue
+              {reviewQueue.length > 0 && (
+                <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
+                  {reviewQueue.length}
+                </span>
+              )}
+            </h3>
+            {manifest && (
+              <select
+                value={reviewFilter}
+                onChange={e => setReviewFilter(e.target.value)}
+                className="text-xs border border-gray-200 rounded px-2 py-1"
+              >
+                <option value="">All traits</option>
+                {Object.keys(manifest.models).map(t => (
+                  <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mb-3">
+            Images where AI predicted incorrectly and you corrected the value. Review these to improve model accuracy.
+          </p>
+          {reviewQueue.length === 0 ? (
+            <div className="bg-gray-50 rounded-lg p-4 text-center text-sm text-gray-400">
+              No AI disagreements found. As you correct AI predictions, they'll appear here.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {reviewQueue.map(item => (
+                <div key={item.id} className="bg-card rounded-lg border border-gray-100 shadow-sm p-3 flex items-center gap-3">
+                  {/* Thumbnail */}
+                  <div className="w-14 h-14 rounded overflow-hidden bg-gray-100 flex-shrink-0">
+                    <img
+                      src={api.getImageUrl(item.image_filename)}
+                      alt={`Image ${item.image_id}`}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                    />
+                  </div>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs font-medium text-gray-500">{item.trait_name.replace(/_/g, ' ')}</span>
+                      <span className="text-[10px] text-gray-300">Plot #{item.plot_id}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-red-600 line-through font-medium">
+                        AI: {item.ai_predicted_value ?? '?'}
+                      </span>
+                      <span className="text-gray-400">→</span>
+                      <span className="text-green-700 font-semibold">
+                        You: {item.value}
+                      </span>
+                      {item.ai_confidence != null && (
+                        <span className="text-[10px] text-gray-400">
+                          ({(item.ai_confidence * 100).toFixed(0)}% conf)
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-gray-400 mt-0.5">
+                      {new Date(item.labeled_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Training History */}
       <div>

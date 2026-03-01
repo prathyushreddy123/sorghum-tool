@@ -18,6 +18,16 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = ""
     GCS_BUCKET: str = ""
 
+    # Supabase
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_KEY: str = ""
+
+    # RunPod
+    RUNPOD_API_KEY: str = ""
+    RUNPOD_ENDPOINT_ID: str = ""
+    RAILWAY_PUBLIC_URL: str = ""
+    TRAINING_CALLBACK_SECRET: str = ""
+
     # AI services
     GEMINI_API_KEY: str = ""
     GROQ_API_KEY: str = ""

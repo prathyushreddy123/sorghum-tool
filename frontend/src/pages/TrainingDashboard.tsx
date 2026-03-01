@@ -279,7 +279,7 @@ export default function TrainingDashboard() {
     const traits = Object.keys(manifest.models);
     Promise.all(
       traits.map(t =>
-        api.getReferenceImages(t).then(imgs => [t, imgs] as const).catch(() => [t, []] as const)
+        api.getReferenceImages(t).then(imgs => [t, imgs] as const).catch((): [string, ReferenceImage[]] => [t, []])
       )
     ).then(results => {
       const map: Record<string, ReferenceImage[]> = {};

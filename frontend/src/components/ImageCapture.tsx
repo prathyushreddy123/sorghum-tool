@@ -37,7 +37,7 @@ async function compressImage(file: File, maxWidth = 1200): Promise<File> {
   });
 }
 
-export default function ImageCapture({ plotId, imageType = 'panicle', buttonLabel = 'Take Photo', helpText, onImageCaptured, onImageUploaded }: ImageCaptureProps) {
+export default function ImageCapture({ plotId, imageType = 'panicle', helpText, onImageCaptured, onImageUploaded }: ImageCaptureProps) {
   const [images, setImages] = useState<PlotImage[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');

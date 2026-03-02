@@ -6,6 +6,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir \
     runpod>=1.6.0 \
     supabase>=2.0.0 \
+    torchvision>=0.16.0 \
     onnx>=1.14 \
     onnxruntime>=1.16 \
     Pillow>=10.0 \

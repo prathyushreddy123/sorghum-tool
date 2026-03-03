@@ -284,16 +284,29 @@ def update_local_manifest(trait_name: str, classes: list[str], class_labels: lis
 
 # ─── Gemini Severity Labeling ────────────────────────────────────────────────
 
-async def label_severity_with_gemini(dataset_dir: Path, sample_limit: int = 0) -> dict:
+async def label_severity_with_gemini(
+    dataset_dir: Path,
+    sample_limit: int = 0,
+    use_vertex: bool = False,
+    classes: list[str] | None = None,
+    class_labels: list[str] | None = None,
+) -> dict:
     """Use Gemini to estimate severity 1-5 for each image. Returns {filepath: severity}."""
     from google import genai
 
-    api_key = settings.GEMINI_API_KEY
-    if not api_key:
-        print("ERROR: GEMINI_API_KEY not set. Add it to backend/.env")
-        sys.exit(1)
-
-    client = genai.Client(api_key=api_key)
+    if use_vertex:
+        # Use Vertex AI with GCP credentials (higher rate limits, uses GCP credits)
+        project = os.environ.get("GOOGLE_CLOUD_PROJECT", "sorghum-tool")
+        location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+        client = genai.Client(vertexai=True, project=project, location=location)
+        print(f"Using Vertex AI (project={project}, location={location})")
+    else:
+        api_key = settings.GEMINI_API_KEY
+        if not api_key:
+            print("ERROR: GEMINI_API_KEY not set. Add it to backend/.env")
+            sys.exit(1)
+        client = genai.Client(api_key=api_key)
+        print("Using Google AI Studio (free tier)")
 
     # Load existing labels if resuming
     labels = {}
@@ -317,35 +330,54 @@ async def label_severity_with_gemini(dataset_dir: Path, sample_limit: int = 0) -
         random.shuffle(all_images)
         all_images = all_images[:sample_limit]
 
+    args_classes = classes or ["1", "2", "3", "4", "5"]
+    args_labels = class_labels or [
+        "None (0% affected)", "Low (1-10%)", "Moderate (11-25%)",
+        "High (26-50%)", "Severe (>50%)",
+    ]
+
     print(f"Labeling {len(all_images)} images with Gemini ({len(labels)} already cached)...")
+    print(f"Scale: {dict(zip(args_classes, args_labels))}")
 
-    prompt = """You are a plant pathologist. Look at this sorghum disease image and estimate the disease severity on a 1-5 scale:
-1 = None (0% affected, healthy)
-2 = Low (1-10% affected)
-3 = Moderate (11-25% affected)
-4 = High (26-50% affected)
-5 = Severe (>50% affected)
+    scale_desc = "\n".join(
+        f"{c} = {l}" for c, l in zip(args_classes, args_labels)
+    )
+    valid_values = ", ".join(args_classes)
+    prompt = f"""You are a plant pathologist. Look at this sorghum disease image and estimate the disease severity using this scale:
+{scale_desc}
 
-The disease shown is: {disease}
+The disease shown is: {{disease}}
 
-Respond with ONLY a single digit 1-5. Nothing else."""
+Respond with ONLY one of these values: {valid_values}. Nothing else."""
 
-    batch_size = 5  # process in small batches to avoid rate limits
-    for i in range(0, len(all_images), batch_size):
-        batch = all_images[i:i + batch_size]
-        for file_path, disease_name in batch:
+    concurrency = 10 if use_vertex else 3
+    semaphore = asyncio.Semaphore(concurrency)
+    batch_size = 100 if use_vertex else 20
+    labeled_count = 0
+
+    async def label_one(file_path: Path, disease_name: str):
+        nonlocal labeled_count
+        async with semaphore:
             try:
                 img_bytes = file_path.read_bytes()
                 img_b64 = base64.b64encode(img_bytes).decode()
                 mime = "image/jpeg" if file_path.suffix.lower() in (".jpg", ".jpeg") else "image/png"
 
-                response = await client.aio.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=[
-                        {"inline_data": {"mime_type": mime, "data": img_b64}},
-                        prompt.format(disease=disease_name),
-                    ],
-                )
+                for attempt in range(3):
+                    try:
+                        response = await client.aio.models.generate_content(
+                            model="gemini-2.5-flash",
+                            contents=[
+                                {"inline_data": {"mime_type": mime, "data": img_b64}},
+                                prompt.format(disease=disease_name),
+                            ],
+                        )
+                        break
+                    except Exception as e:
+                        if "429" in str(e) and attempt < 2:
+                            await asyncio.sleep(5 * (attempt + 1))
+                        else:
+                            raise
 
                 severity = response.text.strip()
                 if severity in ("1", "2", "3", "4", "5"):
@@ -353,25 +385,23 @@ Respond with ONLY a single digit 1-5. Nothing else."""
                         "severity": int(severity),
                         "disease": disease_name,
                     }
+                    labeled_count += 1
                 else:
                     print(f"  WARNING: Unexpected response for {file_path.name}: '{severity}'")
 
             except Exception as e:
-                if "429" in str(e):
-                    print(f"  Rate limited, waiting 30s...")
-                    await asyncio.sleep(30)
-                else:
-                    print(f"  ERROR labeling {file_path.name}: {e}")
+                print(f"  ERROR {file_path.name}: {e}")
+
+    # Process in batches to save progress periodically
+    for i in range(0, len(all_images), batch_size):
+        batch = all_images[i:i + batch_size]
+        tasks = [label_one(fp, dn) for fp, dn in batch]
+        await asyncio.gather(*tasks)
 
         # Save progress after each batch
         LABELS_CACHE.write_text(json.dumps(labels, indent=2))
-
         done = min(i + batch_size, len(all_images))
-        if done % 50 == 0 or done == len(all_images):
-            print(f"  Progress: {done}/{len(all_images)} labeled")
-
-        # Small delay to respect rate limits
-        await asyncio.sleep(1)
+        print(f"  Progress: {done}/{len(all_images)} labeled ({labeled_count} successful)")
 
     print(f"\nLabeling complete: {len(labels)} total labels")
 
@@ -394,7 +424,12 @@ def cmd_label(args):
         print(f"ERROR: Dataset directory not found: {dataset_dir}")
         sys.exit(1)
 
-    labels = asyncio.run(label_severity_with_gemini(dataset_dir, args.limit))
+    classes = args.classes.split(",") if args.classes else None
+    class_labels = args.class_labels.split(",") if args.class_labels else None
+    labels = asyncio.run(label_severity_with_gemini(
+        dataset_dir, args.limit, use_vertex=args.vertex,
+        classes=classes, class_labels=class_labels,
+    ))
     print(f"\nSaved labels to {LABELS_CACHE}")
 
 
@@ -581,6 +616,9 @@ def main():
     p_label = sub.add_parser("label", help="Auto-label severity with Gemini")
     p_label.add_argument("--dataset-dir", required=True)
     p_label.add_argument("--limit", type=int, default=0, help="Max images to label (0=all)")
+    p_label.add_argument("--vertex", action="store_true", help="Use Vertex AI (GCP credits) instead of AI Studio")
+    p_label.add_argument("--classes", help="Comma-separated scale values (default: 1,2,3,4,5)")
+    p_label.add_argument("--class-labels", help="Comma-separated scale descriptions (default: None,Low,Moderate,High,Severe)")
     p_label.set_defaults(func=cmd_label)
 
     # train-id

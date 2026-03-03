@@ -218,6 +218,7 @@ export default function ObservationEntry() {
     'anthracnose_and_red_rot': 'anthracnose_severity',
     'cereal_grain_molds': 'grain_mold_severity',
     'covered_kernel_smut': 'covered_smut_severity',
+    'ergot': 'ergot_severity',
     'head_smut': 'head_smut_severity',
     'rust': 'rust_severity',
     'loose_smut': 'loose_smut_severity',

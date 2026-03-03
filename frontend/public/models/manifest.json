@@ -108,11 +108,12 @@
         "url": "https://msqzfbaufxwxtgmsuhzf.supabase.co/storage/v1/object/public/models/sorghum_disease_type.onnx",
         "version": "v1-20260303",
         "size_mb": 0.33,
-        "accuracy": 0.9916,
+        "accuracy": 0.989,
         "classes": [
           "anthracnose_and_red_rot",
           "cereal_grain_molds",
           "covered_kernel_smut",
+          "ergot",
           "head_smut",
           "rust",
           "loose_smut"
@@ -121,6 +122,7 @@
           "Anthracnose and Red Rot",
           "Cereal Grain molds",
           "Covered Kernel smut",
+          "Ergot",
           "Head Smut",
           "Rust",
           "loose smut"

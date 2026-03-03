@@ -183,24 +183,34 @@ export default function ObservationEntry() {
    * Find the categorical trait that matches a given photo type.
    * Falls back to first AI-supported categorical trait if no photo_type match.
    */
+  // Generic/fallback traits — deprioritize these in favor of specific disease traits
+  const GENERIC_TRAITS = new Set(['disease_severity_general', 'sorghum_disease_type']);
+
   async function findTraitForPhoto(photoType: string): Promise<{ traitId: number; traitName: string } | null> {
-    // First: find a trait whose manifest photo_type matches
+    // First: find a specific (non-generic) trait whose manifest photo_type matches
+    let genericFallback: { traitId: number; traitName: string } | null = null;
     for (const tt of trialTraits) {
       if (tt.trait.data_type !== 'categorical') continue;
       const entry = await modelManager.getTraitEntry(tt.trait.name);
       if (entry && entry.photo_type === photoType && !traitValues[tt.trait_id]) {
+        if (GENERIC_TRAITS.has(tt.trait.name)) {
+          genericFallback = genericFallback || { traitId: tt.trait_id, traitName: tt.trait.name };
+          continue;
+        }
         return { traitId: tt.trait_id, traitName: tt.trait.name };
       }
     }
-    // Fallback: first AI-supported categorical trait without a value
+    // Fallback: first AI-supported categorical trait without a value (prefer specific)
     for (const tt of trialTraits) {
       if (tt.trait.data_type !== 'categorical') continue;
       if (traitValues[tt.trait_id]) continue;
+      if (GENERIC_TRAITS.has(tt.trait.name)) continue;
       if (aiTraitNames.has(tt.trait.name)) {
         return { traitId: tt.trait_id, traitName: tt.trait.name };
       }
     }
-    return null;
+    // Last resort: generic trait
+    return genericFallback;
   }
 
   // Disease class → severity trait name mapping
@@ -257,18 +267,23 @@ export default function ObservationEntry() {
         if (tt) target = { traitId: tt.trait_id, traitName: tt.trait.name };
       }
 
-      // Fallback: first AI-supported categorical trait (prefer unscored)
+      // Fallback: first AI-supported categorical trait (prefer unscored, prefer specific over generic)
       if (!target) {
         target = await findTraitForPhoto('panicle');
         if (!target) {
-          // Try any AI trait even if already scored
+          // Try any AI trait even if already scored (prefer specific over generic)
+          let genericFallback: { traitId: number; traitName: string } | null = null;
           for (const tt of trialTraits) {
             if (tt.trait.data_type !== 'categorical') continue;
-            if (aiTraitNames.has(tt.trait.name)) {
-              target = { traitId: tt.trait_id, traitName: tt.trait.name };
-              break;
+            if (!aiTraitNames.has(tt.trait.name)) continue;
+            if (GENERIC_TRAITS.has(tt.trait.name)) {
+              genericFallback = genericFallback || { traitId: tt.trait_id, traitName: tt.trait.name };
+              continue;
             }
+            target = { traitId: tt.trait_id, traitName: tt.trait.name };
+            break;
           }
+          if (!target) target = genericFallback;
         }
         console.log('[AI] Disease match fallback:', target?.traitName || '(none found)');
       }

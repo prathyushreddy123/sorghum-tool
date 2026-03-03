@@ -153,6 +153,14 @@
         "input_size": 224,
         "confidence_threshold": 0.6
       },
+      "tier2_labels": {
+        "1": "healthy sorghum plant with no disease symptoms, clean tissue",
+        "2": "sorghum plant with slight disease symptoms, 1-10% of tissue affected",
+        "3": "sorghum plant with moderate disease symptoms, 11-25% of tissue affected",
+        "4": "sorghum plant with heavy disease symptoms, 26-50% of tissue affected",
+        "5": "sorghum plant with severe disease, over 50% of tissue affected, extensive damage"
+      },
+      "tier3": "llm_few_shot",
       "photo_type": "panicle"
     },
     "rust_severity": {

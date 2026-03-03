@@ -1,16 +1,28 @@
 {
-  "version": "2026-02-25",
+  "version": "2026-03-03",
   "models": {
     "ergot_severity": {
       "tier1": {
-        "url": "/models/ergot-severity-v1.onnx",
+        "url": "https://msqzfbaufxwxtgmsuhzf.supabase.co/storage/v1/object/public/models/ergot-severity-v1.onnx",
         "version": "v1",
         "size_mb": 13,
         "accuracy": null,
-        "classes": ["1", "2", "3", "4", "5"],
-        "class_labels": ["None (0%)", "Low (1-10%)", "Moderate (11-25%)", "High (26-50%)", "Severe (>50%)"],
+        "classes": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "class_labels": [
+          "None (0%)",
+          "Low (1-10%)",
+          "Moderate (11-25%)",
+          "High (26-50%)",
+          "Severe (>50%)"
+        ],
         "input_size": 224,
-        "confidence_threshold": 0.70
+        "confidence_threshold": 0.7
       },
       "tier2_labels": {
         "1": "sorghum panicle with no ergot, no honeydew, completely clean healthy panicle",
@@ -23,7 +35,28 @@
       "photo_type": "panicle"
     },
     "anthracnose_severity": {
-      "tier1": null,
+      "tier1": {
+        "url": "https://msqzfbaufxwxtgmsuhzf.supabase.co/storage/v1/object/public/models/anthracnose_severity.onnx",
+        "version": "v1-20260303",
+        "size_mb": 0.33,
+        "accuracy": 0.7745,
+        "classes": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "class_labels": [
+          "None (0%)",
+          "Low (1-10%)",
+          "Moderate (11-25%)",
+          "High (26-50%)",
+          "Severe (>50%)"
+        ],
+        "input_size": 224,
+        "confidence_threshold": 0.6
+      },
       "tier2_labels": {
         "1": "healthy sorghum leaf with no anthracnose lesions",
         "2": "sorghum leaf with few small anthracnose lesions, 1-10% leaf area affected",
@@ -32,7 +65,7 @@
         "5": "sorghum leaf heavily damaged by anthracnose, over 50% leaf area with coalescing lesions"
       },
       "tier3": "llm_few_shot",
-      "photo_type": "leaf"
+      "photo_type": "panicle"
     },
     "flowering_stage": {
       "tier1": null,
@@ -66,6 +99,223 @@
         "3": "sorghum panicle with moderate seed set, 40-60% of florets filled",
         "4": "sorghum panicle with good seed set, 60-80% of florets filled",
         "5": "sorghum panicle with excellent seed set, over 80% of florets filled, plump grains throughout"
+      },
+      "tier3": "llm_few_shot",
+      "photo_type": "panicle"
+    },
+    "sorghum_disease_type": {
+      "tier1": {
+        "url": "https://msqzfbaufxwxtgmsuhzf.supabase.co/storage/v1/object/public/models/sorghum_disease_type.onnx",
+        "version": "v1-20260303",
+        "size_mb": 0.33,
+        "accuracy": 0.9916,
+        "classes": [
+          "anthracnose_and_red_rot",
+          "cereal_grain_molds",
+          "covered_kernel_smut",
+          "head_smut",
+          "rust",
+          "loose_smut"
+        ],
+        "class_labels": [
+          "Anthracnose and Red Rot",
+          "Cereal Grain molds",
+          "Covered Kernel smut",
+          "Head Smut",
+          "Rust",
+          "loose smut"
+        ],
+        "input_size": 224,
+        "confidence_threshold": 0.6
+      },
+      "photo_type": "panicle"
+    },
+    "disease_severity_general": {
+      "tier1": {
+        "url": "https://msqzfbaufxwxtgmsuhzf.supabase.co/storage/v1/object/public/models/disease_severity_general.onnx",
+        "version": "v1-20260303",
+        "size_mb": 0.33,
+        "accuracy": 0.8172,
+        "classes": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "class_labels": [
+          "None (0%)",
+          "Low (1-10%)",
+          "Moderate (11-25%)",
+          "High (26-50%)",
+          "Severe (>50%)"
+        ],
+        "input_size": 224,
+        "confidence_threshold": 0.6
+      },
+      "photo_type": "panicle"
+    },
+    "rust_severity": {
+      "tier1": {
+        "url": "https://msqzfbaufxwxtgmsuhzf.supabase.co/storage/v1/object/public/models/rust_severity.onnx",
+        "version": "v1-20260303",
+        "size_mb": 0.33,
+        "accuracy": 0.6723,
+        "classes": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "class_labels": [
+          "None (0%)",
+          "Low (1-10%)",
+          "Moderate (11-25%)",
+          "High (26-50%)",
+          "Severe (>50%)"
+        ],
+        "input_size": 224,
+        "confidence_threshold": 0.6
+      },
+      "tier2_labels": {
+        "1": "healthy sorghum leaf with no rust pustules, clean green leaf surface",
+        "2": "sorghum leaf with few small rust pustules, orange-brown spots on 1-10% of leaf area",
+        "3": "sorghum leaf with moderate rust infection, orange-brown pustules on 11-25% of leaf area",
+        "4": "sorghum leaf with heavy rust infection, dense orange-brown pustules covering 26-50% of leaf",
+        "5": "sorghum leaf severely damaged by rust, over 50% covered with coalescing orange-brown pustules, leaf tissue dying"
+      },
+      "tier3": "llm_few_shot",
+      "photo_type": "leaf"
+    },
+    "grain_mold_severity": {
+      "tier1": {
+        "url": "https://msqzfbaufxwxtgmsuhzf.supabase.co/storage/v1/object/public/models/grain_mold_severity.onnx",
+        "version": "v1-20260303",
+        "size_mb": 0.33,
+        "accuracy": 0.8525,
+        "classes": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "class_labels": [
+          "None (0%)",
+          "Low (1-10%)",
+          "Moderate (11-25%)",
+          "High (26-50%)",
+          "Severe (>50%)"
+        ],
+        "input_size": 224,
+        "confidence_threshold": 0.6
+      },
+      "tier2_labels": {
+        "1": "healthy sorghum panicle with clean grain, no visible mold or discoloration",
+        "2": "sorghum panicle with slight grain mold, small patches of fuzzy mold on 1-10% of grains",
+        "3": "sorghum panicle with moderate grain mold, visible mold growth on 11-25% of grains",
+        "4": "sorghum panicle with heavy grain mold, extensive fuzzy mold covering 26-50% of grains, discoloration",
+        "5": "sorghum panicle severely affected by grain mold, over 50% of grains covered, grain deteriorating"
+      },
+      "tier3": "llm_few_shot",
+      "photo_type": "panicle"
+    },
+    "covered_smut_severity": {
+      "tier1": {
+        "url": "https://msqzfbaufxwxtgmsuhzf.supabase.co/storage/v1/object/public/models/disease_severity_general.onnx",
+        "version": "v1-20260303",
+        "size_mb": 0.33,
+        "accuracy": 0.8172,
+        "classes": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "class_labels": [
+          "None (0%)",
+          "Low (1-10%)",
+          "Moderate (11-25%)",
+          "High (26-50%)",
+          "Severe (>50%)"
+        ],
+        "input_size": 224,
+        "confidence_threshold": 0.6
+      },
+      "tier2_labels": {
+        "1": "healthy sorghum panicle with no smut, clean grain",
+        "2": "sorghum panicle with slight covered kernel smut, 1-10% of grains replaced by dark smut sori",
+        "3": "sorghum panicle with moderate covered smut, 11-25% of grains replaced by smut masses",
+        "4": "sorghum panicle with heavy covered smut, 26-50% of grains replaced by dark spore masses",
+        "5": "sorghum panicle severely affected by covered smut, over 50% of grains destroyed and replaced by black spore masses"
+      },
+      "tier3": "llm_few_shot",
+      "photo_type": "panicle"
+    },
+    "head_smut_severity": {
+      "tier1": {
+        "url": "https://msqzfbaufxwxtgmsuhzf.supabase.co/storage/v1/object/public/models/disease_severity_general.onnx",
+        "version": "v1-20260303",
+        "size_mb": 0.33,
+        "accuracy": 0.8172,
+        "classes": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "class_labels": [
+          "None (0%)",
+          "Low (1-10%)",
+          "Moderate (11-25%)",
+          "High (26-50%)",
+          "Severe (>50%)"
+        ],
+        "input_size": 224,
+        "confidence_threshold": 0.6
+      },
+      "tier2_labels": {
+        "1": "healthy sorghum panicle with normal grain development, no smut",
+        "2": "sorghum panicle with slight head smut, small dark spore mass visible on 1-10% of panicle",
+        "3": "sorghum panicle with moderate head smut, black spore masses replacing 11-25% of the panicle",
+        "4": "sorghum panicle with heavy head smut, large black spore masses replacing 26-50% of panicle structure",
+        "5": "sorghum panicle almost entirely replaced by black head smut spore mass, over 50% destroyed"
+      },
+      "tier3": "llm_few_shot",
+      "photo_type": "panicle"
+    },
+    "loose_smut_severity": {
+      "tier1": {
+        "url": "https://msqzfbaufxwxtgmsuhzf.supabase.co/storage/v1/object/public/models/disease_severity_general.onnx",
+        "version": "v1-20260303",
+        "size_mb": 0.33,
+        "accuracy": 0.8172,
+        "classes": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "class_labels": [
+          "None (0%)",
+          "Low (1-10%)",
+          "Moderate (11-25%)",
+          "High (26-50%)",
+          "Severe (>50%)"
+        ],
+        "input_size": 224,
+        "confidence_threshold": 0.6
+      },
+      "tier2_labels": {
+        "1": "healthy sorghum panicle with no loose smut, normal grain development",
+        "2": "sorghum panicle with slight loose smut, small amount of dark powdery spores on 1-10% of panicle",
+        "3": "sorghum panicle with moderate loose smut, powdery black spores on 11-25% of panicle",
+        "4": "sorghum panicle with heavy loose smut, 26-50% of panicle covered in loose dark spore masses",
+        "5": "sorghum panicle severely affected by loose smut, over 50% of panicle is powdery black spore mass, most grain destroyed"
       },
       "tier3": "llm_few_shot",
       "photo_type": "panicle"

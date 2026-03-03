@@ -241,9 +241,14 @@ def export_onnx(model: nn.Module, output_path: Path, quantize: bool = True):
     )
 
     if quantize:
-        quantize_dynamic(str(fp32_path), str(output_path), weight_type=QuantType.QUInt8)
-        fp32_path.unlink()
-        print(f"  Exported INT8 ONNX: {output_path} ({output_path.stat().st_size / 1024 / 1024:.1f} MB)")
+        try:
+            quantize_dynamic(str(fp32_path), str(output_path), weight_type=QuantType.QUInt8)
+            fp32_path.unlink()
+            print(f"  Exported INT8 ONNX: {output_path} ({output_path.stat().st_size / 1024 / 1024:.1f} MB)")
+        except Exception as e:
+            print(f"  Quantization failed ({e}), using FP32 instead")
+            fp32_path.rename(output_path)
+            print(f"  Exported FP32 ONNX: {output_path} ({output_path.stat().st_size / 1024 / 1024:.1f} MB)")
     else:
         fp32_path.rename(output_path)
         print(f"  Exported FP32 ONNX: {output_path} ({output_path.stat().st_size / 1024 / 1024:.1f} MB)")
@@ -350,9 +355,9 @@ The disease shown is: {{disease}}
 
 Respond with ONLY one of these values: {valid_values}. Nothing else."""
 
-    concurrency = 10 if use_vertex else 3
+    concurrency = 3 if use_vertex else 2
     semaphore = asyncio.Semaphore(concurrency)
-    batch_size = 100 if use_vertex else 20
+    batch_size = 50 if use_vertex else 20
     labeled_count = 0
 
     async def label_one(file_path: Path, disease_name: str):
@@ -365,17 +370,28 @@ Respond with ONLY one of these values: {valid_values}. Nothing else."""
 
                 for attempt in range(3):
                     try:
-                        response = await client.aio.models.generate_content(
-                            model="gemini-2.5-flash",
-                            contents=[
-                                {"inline_data": {"mime_type": mime, "data": img_b64}},
-                                prompt.format(disease=disease_name),
-                            ],
+                        response = await asyncio.wait_for(
+                            client.aio.models.generate_content(
+                                model="gemini-2.5-flash",
+                                contents=[
+                                    {"inline_data": {"mime_type": mime, "data": img_b64}},
+                                    prompt.format(disease=disease_name),
+                                ],
+                            ),
+                            timeout=60,
                         )
                         break
+                    except asyncio.TimeoutError:
+                        print(f"  TIMEOUT {file_path.name} (attempt {attempt+1})")
+                        if attempt < 2:
+                            await asyncio.sleep(15 * (attempt + 1))
+                        else:
+                            raise
                     except Exception as e:
-                        if "429" in str(e) and attempt < 2:
-                            await asyncio.sleep(5 * (attempt + 1))
+                        if ("429" in str(e) or "RESOURCE_EXHAUSTED" in str(e)) and attempt < 2:
+                            wait = 30 * (attempt + 1)
+                            print(f"  Rate limited, waiting {wait}s (attempt {attempt+1})...")
+                            await asyncio.sleep(wait)
                         else:
                             raise
 
@@ -467,8 +483,8 @@ def cmd_train_id(args):
 
     train_ds = ImageDataset(train_samples, build_transforms(train=True))
     val_ds = ImageDataset(val_samples, build_transforms(train=False))
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, sampler=sampler, num_workers=2)
-    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, sampler=sampler, num_workers=2, persistent_workers=True)
+    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, persistent_workers=True)
 
     model = build_model(len(classes))
     metrics = train_model(model, train_loader, val_loader, device,
@@ -547,8 +563,8 @@ def cmd_train_severity(args):
 
     train_ds = ImageDataset(train_samples, build_transforms(train=True))
     val_ds = ImageDataset(val_samples, build_transforms(train=False))
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, sampler=sampler, num_workers=2)
-    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2)
+    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, sampler=sampler, num_workers=2, persistent_workers=True)
+    val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, persistent_workers=True)
 
     model = build_model(len(classes))
     metrics = train_model(model, train_loader, val_loader, device,

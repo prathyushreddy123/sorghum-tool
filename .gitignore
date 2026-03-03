@@ -23,3 +23,5 @@ frontend/public/models/mobileclip-s0-vision*.onnx*
 # OS
 .DS_Store
 Thumbs.db
+*.fp32.onnx.data
+backend/scripts/labeled_severity.json

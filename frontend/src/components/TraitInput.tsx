@@ -7,9 +7,10 @@ interface TraitInputProps {
   previousValue?: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  aiValue?: string;  // AI-predicted value — shows badge on matching button
 }
 
-export default function TraitInput({ trait, value, previousValue, onChange, disabled }: TraitInputProps) {
+export default function TraitInput({ trait, value, previousValue, onChange, disabled, aiValue }: TraitInputProps) {
   const [listening, setListening] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
@@ -123,7 +124,10 @@ export default function TraitInput({ trait, value, previousValue, onChange, disa
                 `}
                 title={label}
               >
-                <div className="font-bold">{cat}</div>
+                <div className="font-bold">
+                  {cat}
+                  {aiValue === cat && <span className="ml-0.5 text-[9px] align-super">AI</span>}
+                </div>
                 <div className="text-[10px] leading-tight mt-0.5 opacity-80 truncate">{label.split(' ')[0]}</div>
               </button>
             );

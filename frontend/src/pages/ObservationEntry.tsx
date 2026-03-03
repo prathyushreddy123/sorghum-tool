@@ -41,7 +41,14 @@ export default function ObservationEntry() {
 
   // AI prediction for categorical traits with images
   const [aiLoading, setAiLoading] = useState(false);
-  const [aiResult, setAiResult] = useState<{ traitId: number; value: string; confidence: number; reasoning: string } | null>(null);
+  const [aiResults, setAiResults] = useState<Record<number, {
+    value: string;
+    confidence: number;
+    reasoning: string;
+    disease?: string;
+    diseaseConf?: number;
+  }>>({});
+  const [lastDiseaseId, setLastDiseaseId] = useState<{ disease: string; confidence: number } | null>(null);
 
   // AI height prediction
   const [heightPrediction, setHeightPrediction] = useState<HeightPrediction | null>(null);
@@ -68,7 +75,8 @@ export default function ObservationEntry() {
   const loadData = useCallback(async () => {
     setLoading(true);
     setError('');
-    setAiResult(null);
+    setAiResults({});
+    setLastDiseaseId(null);
     setHeightPrediction(null);
     setHeightAiError(false);
     try {
@@ -195,45 +203,105 @@ export default function ObservationEntry() {
     return null;
   }
 
-  // Phase 1: Local classification starts immediately from compressed blob
-  async function handleImageCaptured(blob: Blob, photoType?: string) {
-    const target = await findTraitForPhoto(photoType || 'panicle');
-    if (!target) return;
+  // Disease class → severity trait name mapping
+  const DISEASE_TO_TRAIT: Record<string, string> = {
+    'anthracnose_and_red_rot': 'anthracnose_severity',
+    'cereal_grain_molds': 'grain_mold_severity',
+    'covered_kernel_smut': 'covered_smut_severity',
+    'head_smut': 'head_smut_severity',
+    'rust': 'rust_severity',
+    'loose_smut': 'loose_smut_severity',
+  };
 
+  // Smart pipeline: Disease ID → find matching trait → run severity model
+  async function handleImageCaptured(blob: Blob) {
     pendingBlobRef.current = blob;
     localResultRef.current = null;
-    classifyingTraitRef.current = target;
     setAiLoading(true);
+    setLastDiseaseId(null);
+    console.log('[AI] Photo captured, starting smart pipeline...');
 
     try {
+      // Step 1: Run disease identification model
+      let matchedTraitName: string | null = null;
+      let diseaseLabel = '';
+      let diseaseConf = 0;
+
+      try {
+        const diseaseResult = await modelManager.classify('sorghum_disease_type', blob);
+        if (diseaseResult) {
+          const entry = await modelManager.getTraitEntry('sorghum_disease_type');
+          diseaseLabel = entry?.tier1?.class_labels?.[diseaseResult.classIndex] || diseaseResult.classValue;
+          diseaseConf = diseaseResult.confidence;
+          matchedTraitName = DISEASE_TO_TRAIT[diseaseResult.classValue] || null;
+          setLastDiseaseId({ disease: diseaseLabel, confidence: diseaseConf });
+          console.log(`[AI] Disease ID: ${diseaseLabel} (${(diseaseConf * 100).toFixed(0)}%) → trait: ${matchedTraitName}`);
+        }
+      } catch (err) {
+        console.warn('[AI] Disease ID model failed:', err);
+      }
+
+      // Step 2: Find matching trait in the trial
+      let target: { traitId: number; traitName: string } | null = null;
+
+      if (matchedTraitName) {
+        const tt = trialTraits.find(t => t.trait.name === matchedTraitName && !traitValues[t.trait_id]);
+        if (tt) target = { traitId: tt.trait_id, traitName: tt.trait.name };
+      }
+
+      // Fallback: first unscored AI-supported categorical trait
+      if (!target) {
+        target = await findTraitForPhoto('panicle');
+        console.log('[AI] No disease match in trial, falling back to:', target?.traitName);
+      }
+
+      if (!target) {
+        console.log('[AI] No unscored AI trait found, skipping classification');
+        setAiLoading(false);
+        return;
+      }
+
+      classifyingTraitRef.current = target;
+      console.log(`[AI] Classifying trait: ${target.traitName}`);
+
+      // Step 3: Run severity model for matched trait
       const result = await classifyTrait(target.traitName, blob);
       localResultRef.current = result;
 
-      if (result.provider === 'local' && !result.lowConfidence) {
-        setTraitValue(target.traitId, result.value);
-        setAiResult({
-          traitId: target.traitId,
+      setTraitValue(target.traitId, result.value);
+      setAiResults(prev => ({
+        ...prev,
+        [target.traitId]: {
           value: result.value,
           confidence: result.confidence,
           reasoning: result.reasoning,
-        });
+          disease: diseaseLabel || undefined,
+          diseaseConf: diseaseConf || undefined,
+        },
+      }));
+
+      if (!result.lowConfidence) {
         setAiLoading(false);
       }
+
+      console.log(`[AI] Result: ${target.traitName} = ${result.value} (${(result.confidence * 100).toFixed(0)}%)`);
     } catch (err) {
-      console.warn('Local classification failed:', err);
+      console.error('[AI] Smart pipeline failed:', err);
+      setAiLoading(false);
     }
   }
 
   // Phase 2: After upload completes, retry with API if local was low-confidence
   async function handleImageUploaded(image: PlotImage) {
     const target = classifyingTraitRef.current;
-    if (!target || traitValues[target.traitId]) {
+    if (!target) {
       setAiLoading(false);
       return;
     }
 
     const localResult = localResultRef.current;
-    if (localResult && localResult.provider === 'local' && !localResult.lowConfidence) {
+    if (localResult && !localResult.lowConfidence) {
+      setAiLoading(false);
       return;
     }
 
@@ -243,48 +311,58 @@ export default function ObservationEntry() {
       if (blob) {
         const result = await classifyTrait(target.traitName, blob, image.id);
         setTraitValue(target.traitId, result.value);
-        setAiResult({
-          traitId: target.traitId,
-          value: result.value,
-          confidence: result.confidence,
-          reasoning: result.reasoning,
-        });
-      } else {
-        // No blob — fall back to API-only (legacy path for ergot)
-        if (target.traitName === 'ergot_severity') {
-          const prediction = await api.predictSeverity(image.id);
-          if (prediction.severity >= 1) {
-            setTraitValue(target.traitId, String(prediction.severity));
-            setAiResult({
-              traitId: target.traitId,
-              value: String(prediction.severity),
-              confidence: prediction.confidence,
-              reasoning: prediction.reasoning,
-            });
-          }
-        }
+        setAiResults(prev => ({
+          ...prev,
+          [target.traitId]: {
+            value: result.value,
+            confidence: result.confidence,
+            reasoning: result.reasoning,
+            disease: lastDiseaseId?.disease,
+            diseaseConf: lastDiseaseId?.confidence,
+          },
+        }));
       }
     } catch (err) {
-      console.error('AI prediction failed:', err);
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('503') || msg.includes('unavailable')) {
-        setAiResult(null);
-      } else if (localResult) {
-        setTraitValue(target.traitId, localResult.value);
-        setAiResult({
-          traitId: target.traitId,
-          value: localResult.value,
-          confidence: localResult.confidence,
-          reasoning: localResult.reasoning,
-        });
-      } else {
-        setError(`AI prediction failed: ${msg}`);
+      console.error('[AI] Phase 2 failed:', err);
+      // Keep local result if available
+      if (!localResult) {
+        setError(`AI prediction failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     } finally {
       setAiLoading(false);
       pendingBlobRef.current = null;
       localResultRef.current = null;
       classifyingTraitRef.current = null;
+    }
+  }
+
+  // Re-analyze same photo for a different trait
+  async function reanalyzeForTrait(traitName: string) {
+    const blob = pendingBlobRef.current;
+    if (!blob) return;
+
+    const tt = trialTraits.find(t => t.trait.name === traitName);
+    if (!tt) return;
+
+    setAiLoading(true);
+    try {
+      const result = await classifyTrait(traitName, blob);
+      setTraitValue(tt.trait_id, result.value);
+      setAiResults(prev => ({
+        ...prev,
+        [tt.trait_id]: {
+          value: result.value,
+          confidence: result.confidence,
+          reasoning: result.reasoning,
+          disease: lastDiseaseId?.disease,
+          diseaseConf: lastDiseaseId?.confidence,
+        },
+      }));
+      console.log(`[AI] Re-analyze: ${traitName} = ${result.value} (${(result.confidence * 100).toFixed(0)}%)`);
+    } catch (err) {
+      console.error(`[AI] Re-analyze failed for ${traitName}:`, err);
+    } finally {
+      setAiLoading(false);
     }
   }
 
@@ -337,7 +415,7 @@ export default function ObservationEntry() {
           if (numVal < 1 || numVal > 9) continue;
 
           // Detect if user overrode AI prediction
-          const aiPrediction = aiResult && aiResult.traitId === tt.trait_id ? aiResult : null;
+          const aiPrediction = aiResults[tt.trait_id] || null;
           const userCorrected = aiPrediction && aiPrediction.value !== val;
           const source = userCorrected ? 'user_corrected' : aiPrediction ? 'ai_confirmed' : 'user_label';
 
@@ -597,39 +675,101 @@ export default function ObservationEntry() {
           </div>
         )}
 
-        {/* Image capture (for AI-supported categorical traits) */}
+        {/* AI Disease Analysis — one photo, full diagnosis */}
         {trialTraits.some(tt => tt.trait.data_type === 'categorical') && (
-          <div className="mb-4">
+          <div className="mb-4 bg-white rounded-xl border border-gray-100 p-3 shadow-sm">
             <div className="flex items-center gap-2 mb-2">
-              <label className="block text-sm font-medium text-neutral">Photo</label>
+              <label className="block text-sm font-semibold text-neutral">AI Disease Analysis</label>
               {aiTraitNames.size > 0 && (
-                <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium">
-                  AI: {Array.from(aiTraitNames).map(n => n.replace(/_/g, ' ')).join(', ')}
+                <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-medium">
+                  {aiTraitNames.size} model{aiTraitNames.size !== 1 ? 's' : ''}
                 </span>
               )}
             </div>
             <ImageCapture plotId={pId} imageType="panicle" buttonLabel="Take Photo" onImageCaptured={handleImageCaptured} onImageUploaded={handleImageUploaded} />
-          </div>
-        )}
 
-        {/* AI loading/result banner */}
-        {aiLoading && (
-          <div className="mb-4 flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
-            <svg className="animate-spin h-4 w-4 text-blue-500" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-            </svg>
-            <span className="text-sm text-blue-700">Analyzing photo...</span>
-          </div>
-        )}
-        {aiResult && !aiLoading && (
-          <div className={`mb-4 px-3 py-2 rounded-lg border ${aiResult.confidence < 0.7 ? 'bg-yellow-50 border-yellow-200' : 'bg-blue-50 border-blue-200'}`}>
-            <span className={`text-sm ${aiResult.confidence < 0.7 ? 'text-yellow-700' : 'text-blue-700'}`}>
-              AI set value to <strong>{aiResult.value}</strong>
-              {aiResult.confidence < 0.7 && ' (low confidence)'} — tap to change
-            </span>
-            {aiResult.reasoning && (
-              <p className={`text-xs mt-1 ${aiResult.confidence < 0.7 ? 'text-yellow-500' : 'text-blue-500'}`}>{aiResult.reasoning}</p>
+            {/* AI loading spinner */}
+            {aiLoading && (
+              <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-blue-50 rounded-lg border border-blue-200">
+                <svg className="animate-spin h-4 w-4 text-blue-500" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                </svg>
+                <span className="text-sm text-blue-700">
+                  {lastDiseaseId ? `${lastDiseaseId.disease} detected, scoring severity...` : 'Analyzing photo...'}
+                </span>
+              </div>
+            )}
+
+            {/* AI results card */}
+            {!aiLoading && Object.keys(aiResults).length > 0 && (
+              <div className="mt-3 space-y-2">
+                {/* Disease identification result */}
+                {lastDiseaseId && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-50 rounded-lg border border-purple-200">
+                    <span className="text-sm text-purple-700 font-medium">
+                      Disease: <strong>{lastDiseaseId.disease}</strong>
+                    </span>
+                    <span className="text-xs text-purple-400">
+                      {(lastDiseaseId.confidence * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                )}
+
+                {/* Per-trait severity results */}
+                {Object.entries(aiResults).map(([traitIdStr, result]) => {
+                  const traitId = Number(traitIdStr);
+                  const tt = trialTraits.find(t => t.trait_id === traitId);
+                  if (!tt) return null;
+                  const traitLabel = tt.trait.name.replace(/_/g, ' ');
+                  const classLabels: string[] = tt.trait.category_labels ? JSON.parse(tt.trait.category_labels) : [];
+                  const valueLabel = classLabels[Number(result.value) - 1] || `Score ${result.value}`;
+                  const isLowConf = result.confidence < 0.7;
+
+                  return (
+                    <div
+                      key={traitId}
+                      className={`px-3 py-2 rounded-lg border ${isLowConf ? 'bg-yellow-50 border-yellow-200' : 'bg-blue-50 border-blue-200'}`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className={`text-sm ${isLowConf ? 'text-yellow-700' : 'text-blue-700'}`}>
+                          <strong>{traitLabel}:</strong> {result.value} — {valueLabel}
+                        </span>
+                        <span className={`text-xs ${isLowConf ? 'text-yellow-400' : 'text-blue-400'}`}>
+                          {(result.confidence * 100).toFixed(0)}%{isLowConf ? ' low' : ''}
+                        </span>
+                      </div>
+                      {result.reasoning && (
+                        <p className={`text-xs mt-1 ${isLowConf ? 'text-yellow-500' : 'text-blue-500'}`}>{result.reasoning}</p>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Re-analyze dropdown */}
+                {pendingBlobRef.current && (() => {
+                  const unscoredAiTraits = trialTraits.filter(
+                    tt => tt.trait.data_type === 'categorical' && aiTraitNames.has(tt.trait.name) && !aiResults[tt.trait_id]
+                  );
+                  if (unscoredAiTraits.length === 0) return null;
+                  return (
+                    <select
+                      className="w-full mt-1 text-sm border border-gray-300 rounded-lg px-3 py-2 text-gray-600"
+                      value=""
+                      onChange={(e) => {
+                        if (e.target.value) reanalyzeForTrait(e.target.value);
+                      }}
+                    >
+                      <option value="">Analyze for different trait...</option>
+                      {unscoredAiTraits.map(tt => (
+                        <option key={tt.trait_id} value={tt.trait.name}>
+                          {tt.trait.name.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
+              </div>
             )}
           </div>
         )}
@@ -665,6 +805,7 @@ export default function ObservationEntry() {
                   value={traitValues[tt.trait_id] ?? ''}
                   previousValue={prevValues[tt.trait_id]}
                   onChange={v => setTraitValue(tt.trait_id, v)}
+                  aiValue={aiResults[tt.trait_id]?.value}
                 />
               </div>
             );

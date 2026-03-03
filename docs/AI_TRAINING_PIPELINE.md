@@ -261,6 +261,35 @@ The training pipeline supports custom scales via `--classes` and `--class-labels
 | `compactness_score` | None | CLIP zero-shot | Gemini / Groq |
 | `fertility_score` | None | CLIP zero-shot | Gemini / Groq |
 
+## Smart Photo Flow (In-App UX)
+
+When a researcher takes a photo on the observation entry screen, the app runs a **smart pipeline**:
+
+```
+User takes ONE photo
+  → Step 1: Disease ID model (99.2%) → "Rust detected"
+  → Step 2: Map disease → matching severity trait (rust_severity)
+  → Step 3: Run severity model → "Severity: 4 (High)"
+  → Auto-fill trait value + show result card
+  → User confirms or taps a different value
+```
+
+**Disease-to-trait mapping:**
+| Disease Class | Severity Trait |
+|--------------|----------------|
+| `rust` | `rust_severity` |
+| `cereal_grain_molds` | `grain_mold_severity` |
+| `anthracnose_and_red_rot` | `anthracnose_severity` |
+| `covered_kernel_smut` | `covered_smut_severity` |
+| `head_smut` | `head_smut_severity` |
+| `loose_smut` | `loose_smut_severity` |
+
+If the detected disease doesn't match any trait in the trial, it falls back to the first unscored AI-supported trait.
+
+After the initial analysis, a **"Analyze for different trait"** dropdown lets the researcher re-run classification on the same photo for a different trait without re-capturing.
+
+The AI-selected button shows a small **"AI"** badge so the researcher can see which value was auto-filled.
+
 ## Improving Accuracy
 
 To improve per-disease model accuracy:

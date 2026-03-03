@@ -105,8 +105,8 @@
     },
     "sorghum_disease_type": {
       "tier1": {
-        "url": "https://msqzfbaufxwxtgmsuhzf.supabase.co/storage/v1/object/public/models/sorghum_disease_type.onnx",
-        "version": "v1-20260303",
+        "url": "https://msqzfbaufxwxtgmsuhzf.supabase.co/storage/v1/object/public/models/sorghum_disease_type.onnx?v=2-7class",
+        "version": "v2-20260303",
         "size_mb": 0.33,
         "accuracy": 0.989,
         "classes": [

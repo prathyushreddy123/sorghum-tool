@@ -135,16 +135,23 @@ class ModelManager {
     if (!entry?.tier1) return null;
 
     console.log(`[modelManager] Loading ONNX model for ${traitName}: ${entry.tier1.url} (${entry.tier1.size_mb}MB)`);
-    const promise = ort.InferenceSession.create(entry.tier1.url, {
-      executionProviders: ['wasm'],
-      graphOptimizationLevel: 'all',
-    }).then(session => {
+    const modelUrl = entry.tier1.url;
+    const promise = (async () => {
+      // Fetch model as ArrayBuffer first (avoids ONNX Runtime cross-origin issues)
+      const res = await fetch(modelUrl);
+      if (!res.ok) throw new Error(`Model fetch failed: ${res.status} ${res.statusText} for ${modelUrl}`);
+      const buffer = await res.arrayBuffer();
+      console.log(`[modelManager] Downloaded ${traitName}: ${(buffer.byteLength / 1024).toFixed(0)}KB`);
+      const session = await ort.InferenceSession.create(buffer, {
+        executionProviders: ['wasm'],
+        graphOptimizationLevel: 'all',
+      });
       console.log(`[modelManager] Model loaded: ${traitName}`);
       this.sessions.set(traitName, session);
       this.loading.delete(traitName);
       this.notifyListeners();
       return session;
-    }).catch(err => {
+    })().catch(err => {
       console.error(`[modelManager] Model load failed for ${traitName}:`, err);
       this.loading.delete(traitName);
       this.notifyListeners();

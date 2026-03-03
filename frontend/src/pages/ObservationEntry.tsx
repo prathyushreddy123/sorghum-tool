@@ -257,17 +257,27 @@ export default function ObservationEntry() {
         console.warn('[AI] Disease ID model failed:', err);
       }
 
-      // Step 2: Find matching trait in the trial
+      // Step 2: Find matching severity trait in the trial
       let target: { traitId: number; traitName: string } | null = null;
 
       if (matchedTraitName) {
-        // Try unscored first, then allow already-scored (for re-analysis)
         const tt = trialTraits.find(t => t.trait.name === matchedTraitName && !traitValues[t.trait_id])
           || trialTraits.find(t => t.trait.name === matchedTraitName);
-        if (tt) target = { traitId: tt.trait_id, traitName: tt.trait.name };
+        if (tt) {
+          target = { traitId: tt.trait_id, traitName: tt.trait.name };
+        }
       }
 
-      // Fallback: first AI-supported categorical trait (prefer unscored, prefer specific over generic)
+      // If disease ID succeeded but no matching trait in trial → show warning, stop
+      if (diseaseLabel && matchedTraitName && !target) {
+        const readableTrait = matchedTraitName.replace(/_/g, ' ');
+        console.warn(`[AI] Disease "${diseaseLabel}" detected but trial has no "${matchedTraitName}" trait`);
+        setError(`${diseaseLabel} detected, but this trial has no "${readableTrait}" trait. Add it to score severity.`);
+        setAiLoading(false);
+        return;
+      }
+
+      // If disease ID failed or returned no match, fall back to first available severity trait
       if (!target) {
         target = await findTraitForPhoto('panicle');
         if (!target) {
@@ -285,7 +295,7 @@ export default function ObservationEntry() {
           }
           if (!target) target = genericFallback;
         }
-        console.log('[AI] Disease match fallback:', target?.traitName || '(none found)');
+        console.log('[AI] No disease match, using fallback trait:', target?.traitName || '(none found)');
       }
 
       if (!target) {
@@ -296,7 +306,7 @@ export default function ObservationEntry() {
       }
 
       classifyingTraitRef.current = target;
-      console.log(`[AI] Step 3: Classifying trait: ${target.traitName}`);
+      console.log(`[AI] Step 3: Classifying severity for trait: ${target.traitName}`);
 
       // Step 3: Run severity model for matched trait
       const result = await classifyTrait(target.traitName, blob);

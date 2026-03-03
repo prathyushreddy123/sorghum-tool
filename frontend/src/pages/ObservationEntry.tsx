@@ -219,7 +219,10 @@ export default function ObservationEntry() {
     localResultRef.current = null;
     setAiLoading(true);
     setLastDiseaseId(null);
+    setError('');
     console.log('[AI] Photo captured, starting smart pipeline...');
+    console.log('[AI] Trial traits:', trialTraits.map(tt => `${tt.trait.name} (${tt.trait.data_type})`).join(', '));
+    console.log('[AI] AI-supported traits:', Array.from(aiTraitNames).join(', ') || '(none)');
 
     try {
       // Step 1: Run disease identification model
@@ -228,6 +231,7 @@ export default function ObservationEntry() {
       let diseaseConf = 0;
 
       try {
+        console.log('[AI] Step 1: Running disease ID model...');
         const diseaseResult = await modelManager.classify('sorghum_disease_type', blob);
         if (diseaseResult) {
           const entry = await modelManager.getTraitEntry('sorghum_disease_type');
@@ -236,6 +240,8 @@ export default function ObservationEntry() {
           matchedTraitName = DISEASE_TO_TRAIT[diseaseResult.classValue] || null;
           setLastDiseaseId({ disease: diseaseLabel, confidence: diseaseConf });
           console.log(`[AI] Disease ID: ${diseaseLabel} (${(diseaseConf * 100).toFixed(0)}%) → trait: ${matchedTraitName}`);
+        } else {
+          console.warn('[AI] Disease ID model returned null (model may not be loaded)');
         }
       } catch (err) {
         console.warn('[AI] Disease ID model failed:', err);
@@ -245,24 +251,37 @@ export default function ObservationEntry() {
       let target: { traitId: number; traitName: string } | null = null;
 
       if (matchedTraitName) {
-        const tt = trialTraits.find(t => t.trait.name === matchedTraitName && !traitValues[t.trait_id]);
+        // Try unscored first, then allow already-scored (for re-analysis)
+        const tt = trialTraits.find(t => t.trait.name === matchedTraitName && !traitValues[t.trait_id])
+          || trialTraits.find(t => t.trait.name === matchedTraitName);
         if (tt) target = { traitId: tt.trait_id, traitName: tt.trait.name };
       }
 
-      // Fallback: first unscored AI-supported categorical trait
+      // Fallback: first AI-supported categorical trait (prefer unscored)
       if (!target) {
         target = await findTraitForPhoto('panicle');
-        console.log('[AI] No disease match in trial, falling back to:', target?.traitName);
+        if (!target) {
+          // Try any AI trait even if already scored
+          for (const tt of trialTraits) {
+            if (tt.trait.data_type !== 'categorical') continue;
+            if (aiTraitNames.has(tt.trait.name)) {
+              target = { traitId: tt.trait_id, traitName: tt.trait.name };
+              break;
+            }
+          }
+        }
+        console.log('[AI] Disease match fallback:', target?.traitName || '(none found)');
       }
 
       if (!target) {
-        console.log('[AI] No unscored AI trait found, skipping classification');
+        console.error('[AI] No AI-supported categorical trait found in trial');
+        setError('No AI-supported trait found. Add a disease severity trait to this trial.');
         setAiLoading(false);
         return;
       }
 
       classifyingTraitRef.current = target;
-      console.log(`[AI] Classifying trait: ${target.traitName}`);
+      console.log(`[AI] Step 3: Classifying trait: ${target.traitName}`);
 
       // Step 3: Run severity model for matched trait
       const result = await classifyTrait(target.traitName, blob);
@@ -287,6 +306,7 @@ export default function ObservationEntry() {
       console.log(`[AI] Result: ${target.traitName} = ${result.value} (${(result.confidence * 100).toFixed(0)}%)`);
     } catch (err) {
       console.error('[AI] Smart pipeline failed:', err);
+      setError(`AI analysis failed: ${err instanceof Error ? err.message : String(err)}`);
       setAiLoading(false);
     }
   }

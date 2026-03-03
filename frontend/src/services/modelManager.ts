@@ -63,13 +63,19 @@ class ModelManager {
     if (this.manifestPromise) return this.manifestPromise;
 
     const manifestUrl = import.meta.env.VITE_MANIFEST_URL || '/models/manifest.json';
+    console.log(`[modelManager] Fetching manifest from: ${manifestUrl}`);
     this.manifestPromise = fetch(manifestUrl)
       .then(res => {
         if (!res.ok) throw new Error(`Manifest fetch failed: ${res.status}`);
         return res.json() as Promise<ModelManifest>;
       })
-      .then(m => { this.manifest = m; return m; })
+      .then(m => {
+        console.log(`[modelManager] Manifest loaded: ${Object.keys(m.models).length} models`);
+        this.manifest = m;
+        return m;
+      })
       .catch(err => {
+        console.error(`[modelManager] Manifest fetch failed:`, err);
         this.manifestPromise = null;
         throw err;
       });
@@ -128,15 +134,18 @@ class ModelManager {
     const entry = await this.getTraitEntry(traitName);
     if (!entry?.tier1) return null;
 
+    console.log(`[modelManager] Loading ONNX model for ${traitName}: ${entry.tier1.url} (${entry.tier1.size_mb}MB)`);
     const promise = ort.InferenceSession.create(entry.tier1.url, {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all',
     }).then(session => {
+      console.log(`[modelManager] Model loaded: ${traitName}`);
       this.sessions.set(traitName, session);
       this.loading.delete(traitName);
       this.notifyListeners();
       return session;
     }).catch(err => {
+      console.error(`[modelManager] Model load failed for ${traitName}:`, err);
       this.loading.delete(traitName);
       this.notifyListeners();
       throw err;

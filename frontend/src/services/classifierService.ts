@@ -28,14 +28,17 @@ export async function classifyTrait(
 ): Promise<ClassificationResult> {
   const threshold = await modelManager.getConfidenceThreshold(traitName);
   const entry = await modelManager.getTraitEntry(traitName);
+  console.log(`[classifierService] classifyTrait(${traitName}): entry=${!!entry}, tier1=${!!entry?.tier1}, tier2=${!!entry?.tier2_labels}, threshold=${threshold}`);
 
   // ── Tier 1: Fine-tuned ONNX model ──────────────────────────────────────
   let localResult: LocalPrediction | null = null;
   if (entry?.tier1) {
     try {
+      console.log(`[classifierService] Tier 1: loading model from ${entry.tier1.url}`);
       localResult = await modelManager.classify(traitName, blob);
+      console.log(`[classifierService] Tier 1 result:`, localResult ? `class=${localResult.classValue} conf=${(localResult.confidence * 100).toFixed(0)}%` : 'null');
     } catch (err) {
-      console.warn(`[classifierService] Tier 1 failed for ${traitName}:`, err);
+      console.error(`[classifierService] Tier 1 failed for ${traitName}:`, err);
     }
 
     if (localResult && localResult.confidence >= threshold) {
@@ -52,6 +55,7 @@ export async function classifyTrait(
   // ── Tier 2: CLIP zero-shot ─────────────────────────────────────────────
   if (entry?.tier2_labels) {
     try {
+      console.log(`[classifierService] Tier 2: trying CLIP zero-shot for ${traitName}`);
       const clipResult = await clipClassifier.classify(traitName, blob);
       if (clipResult && clipResult.confidence >= (threshold * 0.8)) {
         // Accept CLIP at slightly lower threshold than Tier 1 (80% of threshold)

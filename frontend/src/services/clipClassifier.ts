@@ -129,7 +129,7 @@ class CLIPClassifier {
     });
 
     // Softmax over similarities (temperature-scaled)
-    const temperature = 0.01; // sharp softmax for cosine similarities in [-1, 1]
+    const temperature = 0.1; // moderate sharpness — allows uncertainty to show
     const scores = softmaxWithTemp(similarities, temperature);
     const maxIdx = scores.indexOf(Math.max(...scores));
 

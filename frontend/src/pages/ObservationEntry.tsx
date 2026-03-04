@@ -225,6 +225,16 @@ export default function ObservationEntry() {
     'loose_smut': 'loose_smut_severity',
   };
 
+  // Disease ID confidence threshold — reject uncertain or out-of-domain images
+  const DISEASE_ID_THRESHOLD = 0.6;
+
+  // Check if prediction scores are spread too evenly (likely out-of-domain)
+  function isHighEntropy(scores: number[]): boolean {
+    const entropy = -scores.reduce((sum, p) => sum + (p > 0 ? p * Math.log(p) : 0), 0);
+    const maxEntropy = Math.log(scores.length); // uniform distribution
+    return entropy > maxEntropy * 0.7; // >70% of max entropy = uncertain
+  }
+
   // Smart pipeline: Disease ID → find matching trait → run severity model
   async function handleImageCaptured(blob: Blob) {
     pendingBlobRef.current = blob;
@@ -241,6 +251,7 @@ export default function ObservationEntry() {
       let matchedTraitName: string | null = null;
       let diseaseLabel = '';
       let diseaseConf = 0;
+      let diseaseIdConfident = false;
 
       try {
         console.log('[AI] Step 1: Running disease ID model...');
@@ -249,14 +260,29 @@ export default function ObservationEntry() {
           const entry = await modelManager.getTraitEntry('sorghum_disease_type');
           diseaseLabel = entry?.tier1?.class_labels?.[diseaseResult.classIndex] || diseaseResult.classValue;
           diseaseConf = diseaseResult.confidence;
-          matchedTraitName = DISEASE_TO_TRAIT[diseaseResult.classValue] || null;
-          setLastDiseaseId({ disease: diseaseLabel, confidence: diseaseConf });
-          console.log(`[AI] Disease ID: ${diseaseLabel} (${(diseaseConf * 100).toFixed(0)}%) → trait: ${matchedTraitName}`);
+
+          // Gate: confidence must exceed threshold AND scores must not be uniformly spread
+          if (diseaseConf >= DISEASE_ID_THRESHOLD && !isHighEntropy(diseaseResult.allScores)) {
+            diseaseIdConfident = true;
+            matchedTraitName = DISEASE_TO_TRAIT[diseaseResult.classValue] || null;
+            setLastDiseaseId({ disease: diseaseLabel, confidence: diseaseConf });
+            console.log(`[AI] Disease ID: ${diseaseLabel} (${(diseaseConf * 100).toFixed(0)}%) → trait: ${matchedTraitName}`);
+          } else {
+            console.warn(`[AI] Disease ID below threshold or high entropy: ${diseaseLabel} (${(diseaseConf * 100).toFixed(0)}%), entropy check: ${isHighEntropy(diseaseResult.allScores)}`);
+          }
         } else {
           console.warn('[AI] Disease ID model returned null (model may not be loaded)');
         }
       } catch (err) {
         console.warn('[AI] Disease ID model failed:', err);
+      }
+
+      // If disease ID was not confident, stop pipeline — don't guess
+      if (!diseaseIdConfident) {
+        console.warn('[AI] Disease ID uncertain — refusing to guess. User must score manually.');
+        setAiWarning('Could not identify disease. Please score manually.');
+        setAiLoading(false);
+        return;
       }
 
       // Step 2: Find matching severity trait in the trial
@@ -279,30 +305,9 @@ export default function ObservationEntry() {
         return;
       }
 
-      // If disease ID failed or returned no match, fall back to first available severity trait
       if (!target) {
-        target = await findTraitForPhoto('panicle');
-        if (!target) {
-          // Try any AI trait even if already scored (prefer specific over generic)
-          let genericFallback: { traitId: number; traitName: string } | null = null;
-          for (const tt of trialTraits) {
-            if (tt.trait.data_type !== 'categorical') continue;
-            if (!aiTraitNames.has(tt.trait.name)) continue;
-            if (GENERIC_TRAITS.has(tt.trait.name)) {
-              genericFallback = genericFallback || { traitId: tt.trait_id, traitName: tt.trait.name };
-              continue;
-            }
-            target = { traitId: tt.trait_id, traitName: tt.trait.name };
-            break;
-          }
-          if (!target) target = genericFallback;
-        }
-        console.log('[AI] No disease match, using fallback trait:', target?.traitName || '(none found)');
-      }
-
-      if (!target) {
-        console.error('[AI] No AI-supported categorical trait found in trial');
-        setAiWarning('No AI-supported trait found. Add a disease severity trait to this trial.');
+        console.error('[AI] No matching severity trait found for identified disease');
+        setAiWarning('No matching severity trait found. Add the appropriate trait to this trial.');
         setAiLoading(false);
         return;
       }
@@ -311,52 +316,10 @@ export default function ObservationEntry() {
       console.log(`[AI] Step 3: Classifying severity for trait: ${target.traitName}`);
 
       // Step 3: Run severity model for matched trait
-      const result = await classifyTrait(target.traitName, blob);
-      localResultRef.current = result;
+      try {
+        const result = await classifyTrait(target.traitName, blob);
+        localResultRef.current = result;
 
-      setTraitValue(target.traitId, result.value);
-      setAiResults(prev => ({
-        ...prev,
-        [target.traitId]: {
-          value: result.value,
-          confidence: result.confidence,
-          reasoning: result.reasoning,
-          disease: diseaseLabel || undefined,
-          diseaseConf: diseaseConf || undefined,
-        },
-      }));
-
-      if (!result.lowConfidence) {
-        setAiLoading(false);
-      }
-
-      console.log(`[AI] Result: ${target.traitName} = ${result.value} (${(result.confidence * 100).toFixed(0)}%)`);
-    } catch (err) {
-      console.error('[AI] Smart pipeline failed:', err);
-      setAiWarning(`AI analysis failed: ${err instanceof Error ? err.message : String(err)}`);
-      setAiLoading(false);
-    }
-  }
-
-  // Phase 2: After upload completes, retry with API if local was low-confidence
-  async function handleImageUploaded(image: PlotImage) {
-    const target = classifyingTraitRef.current;
-    if (!target) {
-      setAiLoading(false);
-      return;
-    }
-
-    const localResult = localResultRef.current;
-    if (localResult && !localResult.lowConfidence) {
-      setAiLoading(false);
-      return;
-    }
-
-    setAiLoading(true);
-    try {
-      const blob = pendingBlobRef.current;
-      if (blob) {
-        const result = await classifyTrait(target.traitName, blob, image.id);
         setTraitValue(target.traitId, result.value);
         setAiResults(prev => ({
           ...prev,
@@ -364,23 +327,29 @@ export default function ObservationEntry() {
             value: result.value,
             confidence: result.confidence,
             reasoning: result.reasoning,
-            disease: lastDiseaseId?.disease,
-            diseaseConf: lastDiseaseId?.confidence,
+            disease: diseaseLabel || undefined,
+            diseaseConf: diseaseConf || undefined,
           },
         }));
+        console.log(`[AI] Result: ${target.traitName} = ${result.value} (${(result.confidence * 100).toFixed(0)}%)`);
+      } catch (err) {
+        console.warn(`[AI] Severity classification failed for ${target.traitName}:`, err);
+        setAiWarning(`Unable to classify ${target.traitName.replace(/_/g, ' ')} — confidence too low. Please score manually.`);
       }
-    } catch (err) {
-      console.error('[AI] Phase 2 failed:', err);
-      // Keep local result if available
-      if (!localResult) {
-        setAiWarning(`AI classification failed: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    } finally {
       setAiLoading(false);
-      pendingBlobRef.current = null;
-      localResultRef.current = null;
-      classifyingTraitRef.current = null;
+    } catch (err) {
+      console.error('[AI] Smart pipeline failed:', err);
+      setAiWarning(`AI analysis failed: ${err instanceof Error ? err.message : String(err)}`);
+      setAiLoading(false);
     }
+  }
+
+  // Phase 2: Upload complete — classification already done in Phase 1, just clean up
+  async function handleImageUploaded(_image: PlotImage) {
+    setAiLoading(false);
+    pendingBlobRef.current = null;
+    localResultRef.current = null;
+    classifyingTraitRef.current = null;
   }
 
   // Re-analyze same photo for a different trait
@@ -407,7 +376,8 @@ export default function ObservationEntry() {
       }));
       console.log(`[AI] Re-analyze: ${traitName} = ${result.value} (${(result.confidence * 100).toFixed(0)}%)`);
     } catch (err) {
-      console.error(`[AI] Re-analyze failed for ${traitName}:`, err);
+      console.warn(`[AI] Re-analyze failed for ${traitName}:`, err);
+      setAiWarning(`Unable to classify ${traitName.replace(/_/g, ' ')} — confidence too low. Please score manually.`);
     } finally {
       setAiLoading(false);
     }
@@ -788,23 +758,22 @@ export default function ObservationEntry() {
                   const traitLabel = tt.trait.name.replace(/_/g, ' ');
                   const classLabels: string[] = tt.trait.category_labels ? JSON.parse(tt.trait.category_labels) : [];
                   const valueLabel = classLabels[Number(result.value) - 1] || `Score ${result.value}`;
-                  const isLowConf = result.confidence < 0.7;
 
                   return (
                     <div
                       key={traitId}
-                      className={`px-3 py-2 rounded-lg border ${isLowConf ? 'bg-yellow-50 border-yellow-200' : 'bg-blue-50 border-blue-200'}`}
+                      className="px-3 py-2 rounded-lg border bg-blue-50 border-blue-200"
                     >
                       <div className="flex items-center justify-between">
-                        <span className={`text-sm ${isLowConf ? 'text-yellow-700' : 'text-blue-700'}`}>
+                        <span className="text-sm text-blue-700">
                           <strong>{traitLabel}:</strong> {result.value} — {valueLabel}
                         </span>
-                        <span className={`text-xs ${isLowConf ? 'text-yellow-400' : 'text-blue-400'}`}>
-                          {(result.confidence * 100).toFixed(0)}%{isLowConf ? ' low' : ''}
+                        <span className="text-xs text-blue-400">
+                          {(result.confidence * 100).toFixed(0)}%
                         </span>
                       </div>
                       {result.reasoning && (
-                        <p className={`text-xs mt-1 ${isLowConf ? 'text-yellow-500' : 'text-blue-500'}`}>{result.reasoning}</p>
+                        <p className="text-xs mt-1 text-blue-500">{result.reasoning}</p>
                       )}
                     </div>
                   );

@@ -8,7 +8,6 @@ export interface ClassificationResult {
   confidence: number;
   reasoning: string;
   provider: 'local' | 'api';
-  lowConfidence: boolean;
 }
 
 /**
@@ -47,7 +46,6 @@ export async function classifyTrait(
         confidence: localResult.confidence,
         reasoning: `Local model (${(localResult.confidence * 100).toFixed(0)}% confidence)`,
         provider: 'local',
-        lowConfidence: false,
       };
     }
   }
@@ -57,14 +55,12 @@ export async function classifyTrait(
     try {
       console.log(`[classifierService] Tier 2: trying CLIP zero-shot for ${traitName}`);
       const clipResult = await clipClassifier.classify(traitName, blob);
-      if (clipResult && clipResult.confidence >= (threshold * 0.8)) {
-        // Accept CLIP at slightly lower threshold than Tier 1 (80% of threshold)
+      if (clipResult && clipResult.confidence >= threshold) {
         return {
           value: clipResult.classValue,
           confidence: clipResult.confidence,
           reasoning: `CLIP zero-shot (${(clipResult.confidence * 100).toFixed(0)}% confidence)`,
           provider: 'local',
-          lowConfidence: clipResult.confidence < threshold,
         };
       }
       // Store CLIP result as fallback if API also fails
@@ -84,13 +80,12 @@ export async function classifyTrait(
       // Other traits will use a generalized endpoint in the future.
       if (traitName === 'ergot_severity') {
         const apiResult = await api.predictSeverity(imageId);
-        if (apiResult.severity >= 1) {
+        if (apiResult.severity >= 1 && apiResult.confidence >= threshold) {
           return {
             value: String(apiResult.severity),
             confidence: apiResult.confidence,
             reasoning: apiResult.reasoning,
             provider: 'api',
-            lowConfidence: false,
           };
         }
       }
@@ -100,18 +95,8 @@ export async function classifyTrait(
     }
   }
 
-  // ── Fallback: return local result even with low confidence ─────────────
-  if (localResult) {
-    return {
-      value: localResult.classValue,
-      confidence: localResult.confidence,
-      reasoning: `Local model (${(localResult.confidence * 100).toFixed(0)}% confidence — low confidence)`,
-      provider: 'local',
-      lowConfidence: true,
-    };
-  }
-
-  throw new Error(`Classification unavailable for ${traitName}: no local model and no API connection`);
+  // ── No tier met the confidence threshold — refuse to guess ─────────────
+  throw new Error(`Unable to classify ${traitName} — confidence too low. Please score manually.`);
 }
 
 // ── Legacy wrapper for backward compat (used in ObservationEntry) ────────

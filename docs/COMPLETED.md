@@ -292,6 +292,47 @@ MVP (Tasks 1-7) + Post-MVP (Features 8-12) all complete.
 
 ---
 
+## Strict AI Classification — No Hallucinations, No Guessing
+
+**Status:** COMPLETE (2026-03-03)
+
+**Problem:** The AI classification pipeline had multiple places where low-confidence or uncertain predictions were shown to users and auto-filled into trait values. A rice photo could be classified as "Ergot" with a severity score because the disease ID model has no "unknown" class — it always picks one of 7 sorghum diseases. The severity model then runs on the wrong input and auto-fills a score, corrupting research data.
+
+**Issues fixed:**
+1. No out-of-domain rejection — disease ID model always picked a sorghum disease, even for non-sorghum images
+2. Disease ID had NO confidence threshold — even 20% confidence triggered disease-to-trait mapping
+3. Low-confidence fallback auto-filled — if all tiers failed threshold, the best-guess result (even 15% confidence) was auto-filled
+4. Tier 3 API returned `lowConfidence: false` always — no confidence check on API results
+5. CLIP softmax temperature=0.01 — artificially inflated confidence to 99%+ even for ambiguous images
+6. Severity models had no rejection — always returned a score even for garbage input
+
+### Changes
+
+**`frontend/src/services/classifierService.ts`**
+- [x] Removed `lowConfidence` field from `ClassificationResult` interface
+- [x] CLIP now requires full confidence threshold (was 80% of threshold)
+- [x] Tier 3 API now gated on `apiResult.confidence >= threshold`
+- [x] Low-confidence fallback replaced with `throw` — refuses to guess
+
+**`frontend/src/services/clipClassifier.ts`**
+- [x] Softmax temperature: `0.01` → `0.1` — no longer inflates everything to 99%+
+
+**`frontend/src/pages/ObservationEntry.tsx`**
+- [x] Added `DISEASE_ID_THRESHOLD = 0.6` + `isHighEntropy()` entropy check — rejects out-of-domain images
+- [x] If disease ID is uncertain, pipeline stops entirely with "Could not identify disease" — no fallback to generic traits (fixes the rice→ergot bug)
+- [x] Severity classification wrapped in try/catch — on failure shows warning, does NOT auto-fill
+- [x] Phase 2 (`handleImageUploaded`) simplified to just cleanup — no retry logic
+- [x] Re-analyze wrapped in try/catch with warning on failure
+- [x] Removed yellow low-confidence styling — all displayed results are confident (blue)
+
+### Verification
+- Clear sorghum disease photo → disease ID + severity auto-filled (high confidence, blue card)
+- Rice/non-plant photo → "Could not identify disease" warning, NO auto-fill, NO trait value set
+- Ambiguous sorghum photo → if below threshold, shows "Unable to classify", NOT a guess
+- No `lowConfidence` references remain in codebase
+
+---
+
 ## Commands Cheat Sheet
 
 ```bash

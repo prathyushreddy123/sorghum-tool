@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { api } from '../api/client';
 
 export default function LoginPage() {
   const { login, register } = useAuth();
@@ -9,6 +10,23 @@ export default function LoginPage() {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotLoading, setForgotLoading] = useState(false);
+
+  async function handleForgotPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setForgotLoading(true);
+    try {
+      await api.forgotPassword(forgotEmail);
+      setForgotSent(true);
+    } catch {
+      setForgotSent(true); // Always show success to prevent email enumeration
+    } finally {
+      setForgotLoading(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -143,6 +161,18 @@ export default function LoginPage() {
                 />
               </div>
 
+              {!isRegister && !showForgot && (
+                <div className="text-right -mt-2">
+                  <button
+                    type="button"
+                    onClick={() => { setShowForgot(true); setForgotEmail(email); }}
+                    className="text-xs text-primary hover:text-primary-dark"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              )}
+
               {error && (
                 <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-100 rounded-xl">
                   <svg className="w-4 h-4 text-error flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -169,13 +199,61 @@ export default function LoginPage() {
             <div className="mt-5 pt-4 border-t border-gray-100 text-center">
               <button
                 type="button"
-                onClick={() => { setIsRegister(!isRegister); setError(''); }}
+                onClick={() => { setIsRegister(!isRegister); setError(''); setShowForgot(false); }}
                 className="text-sm text-primary font-semibold hover:text-primary-dark transition-colors"
               >
                 {isRegister ? 'Already have an account? Sign in' : "Don't have an account? Register"}
               </button>
             </div>
           </div>
+
+          {/* Forgot password panel */}
+          {showForgot && (
+            <div className="mt-4 bg-card rounded-2xl shadow-lg border border-gray-100 p-6">
+              {forgotSent ? (
+                <div className="text-center">
+                  <p className="text-sm text-neutral font-medium mb-2">Check your email</p>
+                  <p className="text-xs text-gray-500">If an account exists for that email, we've sent a password reset link.</p>
+                  <button
+                    type="button"
+                    onClick={() => { setShowForgot(false); setForgotSent(false); }}
+                    className="mt-3 text-sm text-primary font-semibold"
+                  >
+                    Back to sign in
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleForgotPassword} className="space-y-3">
+                  <p className="text-sm font-semibold text-neutral">Reset your password</p>
+                  <p className="text-xs text-gray-500">Enter your email and we'll send you a reset link.</p>
+                  <input
+                    type="email"
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
+                    required
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm min-h-[48px] focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                    placeholder="you@example.com"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowForgot(false)}
+                      className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={forgotLoading}
+                      className="flex-1 py-2.5 bg-primary text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+                    >
+                      {forgotLoading ? 'Sending...' : 'Send Reset Link'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

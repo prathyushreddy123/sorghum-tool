@@ -13,8 +13,8 @@ from sqlalchemy.orm import Session
 
 from config import settings
 from models import (
-    APIKey, Image, Observation, Plot, PlotAttribute, ScoringRound,
-    Team, TeamMember, Trait, Trial, TrialTrait, User,
+    APIKey, Image, Observation, PasswordResetToken, Plot, PlotAttribute,
+    ScoringRound, Team, TeamMember, Trait, Trial, TrialTrait, User,
 )
 
 UPLOAD_DIR = settings.UPLOAD_DIR or os.path.join(os.path.dirname(os.path.abspath(__file__)), "uploads")
@@ -620,6 +620,151 @@ def import_plots_csv(db: Session, trial_id: int, file_content: str) -> tuple[int
     return imported, errors
 
 
+def preview_import_file(file_content: bytes | str, filename: str = "") -> dict:
+    """Parse CSV/XLSX and return columns, sample rows, and suggested mapping."""
+    rows: list[dict[str, str]] = []
+    columns: list[str] = []
+
+    if filename.endswith(".xlsx"):
+        import openpyxl
+        raw = file_content if isinstance(file_content, bytes) else file_content.encode("utf-8")
+        wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True)
+        ws = wb.active
+        if ws is None:
+            return {"columns": [], "sample_rows": [], "suggested_mapping": {}}
+        header = [str(c.value or "").strip() for c in next(ws.iter_rows(min_row=1, max_row=1))]
+        columns = header
+        for row_cells in ws.iter_rows(min_row=2, max_row=6, values_only=True):
+            rows.append({h: str(v or "") for h, v in zip(header, row_cells)})
+        wb.close()
+    else:
+        reader = csv.DictReader(io.StringIO(file_content if isinstance(file_content, str) else file_content.decode("utf-8")))
+        columns = [f.strip() for f in (reader.fieldnames or [])]
+        for i, row in enumerate(reader):
+            if i >= 5:
+                break
+            rows.append({k.strip(): (v or "").strip() for k, v in row.items()})
+
+    # Suggest mapping using fuzzy column name matching
+    required = {"plot_id": ["plot_id", "plotid", "plot", "id", "plot_number", "entry"],
+                "genotype": ["genotype", "geno", "variety", "accession", "line", "entry_name"],
+                "rep": ["rep", "replication", "replicate", "block"],
+                "row": ["row", "range", "row_number"],
+                "column": ["column", "col", "column_number", "position"]}
+
+    suggested: dict[str, str] = {}
+    lower_cols = {c.lower().strip(): c for c in columns}
+    for field, aliases in required.items():
+        for alias in aliases:
+            if alias in lower_cols:
+                suggested[field] = lower_cols[alias]
+                break
+
+    return {"columns": columns, "sample_rows": rows, "suggested_mapping": suggested}
+
+
+def import_plots_mapped(
+    db: Session, trial_id: int, file_content: bytes | str, mapping: dict[str, str], filename: str = ""
+) -> tuple[int, list[str]]:
+    """Import plots using user-defined column mapping."""
+    rows: list[dict[str, str]] = []
+
+    if filename.endswith(".xlsx"):
+        import openpyxl
+        raw = file_content if isinstance(file_content, bytes) else file_content.encode("utf-8")
+        wb = openpyxl.load_workbook(io.BytesIO(raw), read_only=True)
+        ws = wb.active
+        if ws is None:
+            return 0, ["No active sheet found"]
+        header = [str(c.value or "").strip() for c in next(ws.iter_rows(min_row=1, max_row=1))]
+        for row_cells in ws.iter_rows(min_row=2, values_only=True):
+            rows.append({h: str(v or "") for h, v in zip(header, row_cells)})
+        wb.close()
+    else:
+        content = file_content if isinstance(file_content, str) else file_content.decode("utf-8")
+        reader = csv.DictReader(io.StringIO(content))
+        for row in reader:
+            rows.append({k.strip(): (v or "").strip() for k, v in row.items()})
+
+    # Identify extra columns (not mapped to required fields)
+    mapped_cols = set(mapping.values())
+    all_cols = set(rows[0].keys()) if rows else set()
+    extra_cols = [c for c in all_cols if c not in mapped_cols]
+
+    imported = 0
+    errors: list[str] = []
+    for i, row in enumerate(rows, start=2):
+        try:
+            plot = Plot(
+                trial_id=trial_id,
+                plot_id=row[mapping["plot_id"]].strip(),
+                genotype=row[mapping["genotype"]].strip(),
+                rep=int(row[mapping["rep"]].strip()),
+                row=int(row[mapping["row"]].strip()),
+                column=int(row[mapping["column"]].strip()),
+            )
+            db.add(plot)
+            db.flush()
+            for col in extra_cols:
+                val = row.get(col, "").strip()
+                if val:
+                    db.add(PlotAttribute(plot_id=plot.id, key=col, value=val))
+            imported += 1
+        except (ValueError, KeyError) as e:
+            errors.append(f"Row {i}: {e}")
+
+    if imported > 0:
+        db.commit()
+    return imported, errors
+
+
+def bulk_create_grid_observations(
+    db: Session, trial_id: int, items: list[dict], scoring_round_id: int | None = None
+) -> list[Observation]:
+    """Create/update observations for multiple plots in a single transaction (grid view)."""
+    results = []
+    for item in items:
+        plot_id = item["plot_id"]
+        trait_id = item["trait_id"]
+        value = item["value"]
+
+        # Resolve trait name
+        trait = db.query(Trait).filter(Trait.id == trait_id).first()
+        trait_name = trait.name if trait else ""
+
+        existing_query = (
+            db.query(Observation)
+            .filter(
+                Observation.plot_id == plot_id,
+                Observation.trait_id == trait_id,
+            )
+        )
+        if scoring_round_id:
+            existing_query = existing_query.filter(Observation.scoring_round_id == scoring_round_id)
+        existing = existing_query.first()
+        if existing:
+            existing.value = value
+            existing.recorded_at = func.now()
+            db.flush()
+            results.append(existing)
+        else:
+            obs = Observation(
+                plot_id=plot_id,
+                trait_id=trait_id,
+                scoring_round_id=scoring_round_id,
+                trait_name=trait_name,
+                value=value,
+            )
+            db.add(obs)
+            db.flush()
+            results.append(obs)
+
+    db.commit()
+    for r in results:
+        db.refresh(r)
+    return results
+
+
 def plot_has_observations(db: Session, plot_id: int, round_id: int | None = None) -> bool:
     query = db.query(Observation).filter(Observation.plot_id == plot_id)
     if round_id is not None:
@@ -881,6 +1026,49 @@ def validate_api_key(db: Session, raw_key: str) -> APIKey | None:
         key.last_used_at = func.now()
         db.commit()
     return key
+
+
+def create_password_reset_token(db: Session, user_id: int) -> str:
+    """Create a password reset token. Returns the raw token."""
+    from datetime import timedelta
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    expires_at = datetime.utcnow() + timedelta(hours=1)
+    prt = PasswordResetToken(
+        user_id=user_id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+    )
+    db.add(prt)
+    db.commit()
+    return raw_token
+
+
+def verify_reset_token(db: Session, raw_token: str) -> PasswordResetToken | None:
+    """Verify a reset token is valid and unused."""
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    prt = (
+        db.query(PasswordResetToken)
+        .filter(
+            PasswordResetToken.token_hash == token_hash,
+            PasswordResetToken.used == False,  # noqa: E712
+            PasswordResetToken.expires_at > datetime.utcnow(),
+        )
+        .first()
+    )
+    return prt
+
+
+def use_reset_token(db: Session, prt: PasswordResetToken, new_hashed_password: str) -> User:
+    """Consume the reset token and update user password."""
+    prt.used = True
+    user = db.query(User).filter(User.id == prt.user_id).first()
+    if user:
+        user.hashed_password = new_hashed_password
+    db.commit()
+    if user:
+        db.refresh(user)
+    return user  # type: ignore
 
 
 def revoke_api_key(db: Session, key_id: int) -> bool:

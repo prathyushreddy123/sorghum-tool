@@ -32,6 +32,15 @@ class TokenResponse(BaseModel):
     user: UserResponse
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str = Field(..., min_length=6)
+
+
 # --- Team ---
 
 class TeamCreate(BaseModel):
@@ -489,3 +498,36 @@ class HeatmapResponse(BaseModel):
 
 class NextUnscoredResponse(BaseModel):
     next_plot_id: int | None
+
+
+# --- Import Preview / Mapped ---
+
+class ImportPreviewResponse(BaseModel):
+    columns: list[str]
+    sample_rows: list[dict[str, str]]
+    suggested_mapping: dict[str, str]  # required_field → detected_column
+
+
+class ColumnMapping(BaseModel):
+    plot_id: str
+    genotype: str
+    rep: str
+    row: str
+    column: str
+
+
+class ImportMappedRequest(BaseModel):
+    mapping: ColumnMapping
+
+
+# --- Bulk Grid Observations ---
+
+class GridObservationItem(BaseModel):
+    plot_id: int
+    trait_id: int
+    value: str
+
+
+class GridBulkCreate(BaseModel):
+    scoring_round_id: int | None = None
+    observations: list[GridObservationItem]

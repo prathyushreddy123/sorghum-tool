@@ -88,6 +88,20 @@ html.dark .border-blue-200 { border-color: #1E40AF55; }
 html.dark .border-green-600 { border-color: #4CAF50; }
 html.dark .border-green-400 { border-color: #4CAF5088; }
 
+html.dark .bg-red-100 { background-color: #7F1D1D44; }
+html.dark .text-red-600 { color: #F87171; }
+html.dark .text-red-700 { color: #FCA5A5; }
+html.dark .border-yellow-200 { border-color: #92400E55; }
+html.dark .border-yellow-400 { border-color: #D97706; }
+html.dark .text-yellow-700 { color: #FCD34D; }
+html.dark .bg-yellow-50 { background-color: #713F1233; }
+html.dark .text-green-700 { color: #86EFAC; }
+html.dark .text-green-600 { color: #4ADE80; }
+html.dark .bg-purple-50 { background-color: #581C8744; }
+html.dark .text-purple-700 { color: #D8B4FE; }
+html.dark .text-purple-400 { color: #A78BFA; }
+html.dark .border-purple-200 { border-color: #7C3AED55; }
+
 html.dark .shadow { box-shadow: 0 1px 3px rgba(0,0,0,0.4); }
 html.dark .shadow-sm { box-shadow: 0 1px 2px rgba(0,0,0,0.3); }
 html.dark .shadow-md { box-shadow: 0 2px 6px rgba(0,0,0,0.4); }
@@ -157,3 +171,12 @@ html.sun .shadow-md {
 
 html.sun .text-sm { font-size: 0.9375rem; }
 html.sun .text-xs { font-size: 0.8125rem; }
+
+/* ── Animations ────────────────────────────────────────────────────────────── */
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.2s ease-out;
+}

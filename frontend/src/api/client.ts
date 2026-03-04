@@ -87,6 +87,20 @@ export const api = {
 
   getMe: () => request<User>('/auth/me'),
 
+  forgotPassword: (email: string) =>
+    request<{ message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    }),
+
+  resetPassword: (token: string, password: string) =>
+    request<{ message: string }>('/auth/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password }),
+    }),
+
   // ─── Teams ────────────────────────────────────────────────────────────────
   getTeams: () => request<Team[]>('/teams'),
 
@@ -420,6 +434,56 @@ export const api = {
     const query = params.toString() ? `?${params}` : '';
     return request<HeatmapData>(`/trials/${trialId}/heatmap${query}`);
   },
+
+  previewImport: async (trialId: number, file: File): Promise<{ columns: string[]; sample_rows: Record<string, string>[]; suggested_mapping: Record<string, string> }> => {
+    const form = new FormData();
+    form.append('file', file);
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/trials/${trialId}/plots/import/preview`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(body.detail || `Preview failed: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  importMapped: async (trialId: number, file: File, mapping: Record<string, string>): Promise<PlotImportResponse> => {
+    const form = new FormData();
+    form.append('file', file);
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const params = new URLSearchParams({
+      mapping_plot_id: mapping.plot_id,
+      mapping_genotype: mapping.genotype,
+      mapping_rep: mapping.rep,
+      mapping_row: mapping.row,
+      mapping_column: mapping.column,
+    });
+    const res = await fetch(`${API_BASE}/trials/${trialId}/plots/import/mapped?${params}`, {
+      method: 'POST',
+      headers,
+      body: form,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(body.detail || `Import failed: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  saveGridObservations: (trialId: number, data: { scoring_round_id?: number; observations: { plot_id: number; trait_id: number; value: string }[] }) =>
+    request<Observation[]>(`/trials/${trialId}/observations/bulk-grid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    }),
 
   exportCsv: async (trialId: number, roundId?: number): Promise<Blob> => {
     const headers: Record<string, string> = {};

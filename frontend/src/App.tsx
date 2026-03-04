@@ -17,6 +17,8 @@ const HeatmapView = lazy(() => import('./pages/HeatmapView'));
 const TeamManagement = lazy(() => import('./pages/TeamManagement'));
 const Settings = lazy(() => import('./pages/Settings'));
 const TrainingDashboard = lazy(() => import('./pages/TrainingDashboard'));
+const BulkScoring = lazy(() => import('./pages/BulkScoring'));
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
 
 function PageLoader() {
   return (
@@ -59,6 +61,7 @@ function ProtectedRoutes() {
             <Route path="/trials/:trialId" element={<TrialDashboard />} />
             <Route path="/trials/:trialId/plots" element={<PlotList />} />
             <Route path="/trials/:trialId/heatmap" element={<HeatmapView />} />
+            <Route path="/trials/:trialId/bulk-score" element={<BulkScoring />} />
             <Route path="/trials/:trialId/collect" element={<CollectRedirect />} />
             <Route path="/trials/:trialId/collect/:plotId" element={<ObservationEntry />} />
             <Route path="/teams" element={<TeamManagement />} />
@@ -89,6 +92,7 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<AuthenticatedLogin />} />
+          <Route path="/reset-password" element={<Suspense fallback={<PageLoader />}><ResetPasswordPage /></Suspense>} />
           <Route path="*" element={<ProtectedRoutes />} />
         </Routes>
       </AuthProvider>

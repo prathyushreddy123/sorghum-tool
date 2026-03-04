@@ -28,6 +28,14 @@ class Settings(BaseSettings):
     RAILWAY_PUBLIC_URL: str = ""
     TRAINING_CALLBACK_SECRET: str = ""
 
+    # Email (SMTP)
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = "noreply@fieldscout.app"
+    FRONTEND_URL: str = "http://localhost:5173"
+
     # AI services
     GEMINI_API_KEY: str = ""
     GROQ_API_KEY: str = ""

@@ -5,6 +5,7 @@ import * as offlineApi from '../db/offlineApi';
 import type { Plot, TrialStats, PlotStatus } from '../types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import BarcodeScanner from '../components/BarcodeScanner';
+import ImportWizard from '../components/ImportWizard';
 
 type Filter = 'all' | 'unscored' | 'scored';
 
@@ -36,6 +37,7 @@ export default function PlotList() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
+  const [showImportWizard, setShowImportWizard] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -144,11 +146,17 @@ export default function PlotList() {
             Scan
           </button>
           <button
-            onClick={() => fileRef.current?.click()}
+            onClick={() => navigate(`/trials/${id}/bulk-score`)}
+            className="px-3 py-2 bg-card text-primary rounded-lg text-sm font-medium min-h-[44px] border border-primary hover:bg-primary-light transition-colors"
+          >
+            Grid
+          </button>
+          <button
+            onClick={() => setShowImportWizard(true)}
             disabled={importing}
             className="px-4 py-2 bg-primary text-white rounded-lg text-sm font-medium min-h-[44px] disabled:opacity-50 hover:bg-primary-dark transition-colors"
           >
-            {importing ? 'Importing...' : 'Import CSV'}
+            {importing ? 'Importing...' : 'Import'}
           </button>
         </div>
         <input
@@ -271,6 +279,18 @@ export default function PlotList() {
         <BarcodeScanner
           onScan={handleScan}
           onClose={() => setScanning(false)}
+        />
+      )}
+
+      {showImportWizard && (
+        <ImportWizard
+          trialId={id}
+          onComplete={(msg) => {
+            setImportResult(msg);
+            fetchPlots();
+            fetchStats();
+          }}
+          onClose={() => setShowImportWizard(false)}
         />
       )}
     </div>

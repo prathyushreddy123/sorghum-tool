@@ -5,10 +5,14 @@ import crud
 from auth import create_access_token, hash_password, require_user, verify_password
 from database import get_db
 from models import User
+from config import settings
+from services.email import send_password_reset_email
 from schemas import (
     APIKeyCreate,
     APIKeyCreateResponse,
     APIKeyResponse,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
     TokenResponse,
     UserLogin,
     UserRegister,
@@ -53,6 +57,37 @@ def login(data: UserLogin, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 def get_me(user: User = Depends(require_user)):
     return UserResponse.model_validate(user)
+
+
+@router.post("/forgot-password")
+def forgot_password(data: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    """Generate a reset token and send email. Always returns 200 to prevent email enumeration."""
+    user = db.query(User).filter(User.email == data.email).first()
+    if user:
+        raw_token = crud.create_password_reset_token(db, user.id)
+        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={raw_token}"
+        send_password_reset_email(user.email, reset_url)
+    return {"message": "If that email exists, a reset link has been sent."}
+
+
+@router.post("/verify-reset-token")
+def verify_reset_token(token: str, db: Session = Depends(get_db)):
+    """Check if a reset token is valid."""
+    prt = crud.verify_reset_token(db, token)
+    if not prt:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    return {"valid": True}
+
+
+@router.post("/reset-password")
+def reset_password(data: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """Reset password using a valid token."""
+    prt = crud.verify_reset_token(db, data.token)
+    if not prt:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    new_hash = hash_password(data.password)
+    crud.use_reset_token(db, prt, new_hash)
+    return {"message": "Password reset successfully"}
 
 
 # --- API Keys ---

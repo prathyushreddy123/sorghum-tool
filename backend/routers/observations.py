@@ -6,6 +6,7 @@ from auth import require_user, get_authorized_trial, get_authorized_plot, check_
 from database import get_db
 from models import Plot, Trial, User
 from schemas import (
+    GridBulkCreate,
     ObservationBulkCreate,
     ObservationCreate,
     ObservationResponse,
@@ -128,4 +129,32 @@ def bulk_create_observations(
 
     items = [item.model_dump() for item in data.observations]
     results = crud.bulk_create_observations(db, plot.id, items, scoring_round_id=data.scoring_round_id)
+    return [ObservationResponse.model_validate(r) for r in results]
+
+
+@router.post(
+    "/trials/{trial_id}/observations/bulk-grid",
+    response_model=list[ObservationResponse],
+)
+def bulk_grid_observations(
+    trial_id: int,
+    data: GridBulkCreate,
+    db: Session = Depends(get_db),
+    trial: Trial = Depends(get_authorized_trial),
+):
+    """Save observations for multiple plots at once (grid/table view)."""
+    # Validate each item
+    for item in data.observations:
+        plot = crud.get_plot(db, item.plot_id)
+        if not plot or plot.trial_id != trial.id:
+            raise HTTPException(status_code=404, detail=f"Plot {item.plot_id} not found in trial")
+        trait = crud.get_trait(db, item.trait_id)
+        if not trait:
+            raise HTTPException(status_code=404, detail=f"Trait {item.trait_id} not found")
+        error = crud.validate_observation_value(trait, trait.name, item.value)
+        if error:
+            raise HTTPException(status_code=422, detail=error)
+
+    items = [item.model_dump() for item in data.observations]
+    results = crud.bulk_create_grid_observations(db, trial.id, items, scoring_round_id=data.scoring_round_id)
     return [ObservationResponse.model_validate(r) for r in results]

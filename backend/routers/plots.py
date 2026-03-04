@@ -6,6 +6,8 @@ from auth import get_authorized_trial, get_authorized_plot
 from database import get_db
 from models import Trial, Plot
 from schemas import (
+    ImportMappedRequest,
+    ImportPreviewResponse,
     NextUnscoredResponse,
     PlotAttributeResponse,
     PlotAttributeSet,
@@ -73,6 +75,44 @@ def import_plots(
 ):
     content = file.file.read().decode("utf-8")
     imported, errors = crud.import_plots_csv(db, trial.id, content)
+    return PlotImportResponse(imported=imported, errors=errors)
+
+
+@router.post("/trials/{trial_id}/plots/import/preview", response_model=ImportPreviewResponse)
+async def preview_import(
+    trial_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    trial: Trial = Depends(get_authorized_trial),
+):
+    content = await file.read()
+    filename = file.filename or ""
+    result = crud.preview_import_file(content, filename)
+    return ImportPreviewResponse(**result)
+
+
+@router.post("/trials/{trial_id}/plots/import/mapped", response_model=PlotImportResponse)
+async def import_mapped(
+    trial_id: int,
+    file: UploadFile = File(...),
+    mapping_plot_id: str = Query(...),
+    mapping_genotype: str = Query(...),
+    mapping_rep: str = Query(...),
+    mapping_row: str = Query(...),
+    mapping_column: str = Query(...),
+    db: Session = Depends(get_db),
+    trial: Trial = Depends(get_authorized_trial),
+):
+    content = await file.read()
+    filename = file.filename or ""
+    mapping = {
+        "plot_id": mapping_plot_id,
+        "genotype": mapping_genotype,
+        "rep": mapping_rep,
+        "row": mapping_row,
+        "column": mapping_column,
+    }
+    imported, errors = crud.import_plots_mapped(db, trial.id, content, mapping, filename)
     return PlotImportResponse(imported=imported, errors=errors)
 
 

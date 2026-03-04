@@ -10,6 +10,7 @@ import HeightMeasure from '../components/HeightMeasure';
 import ImageCapture from '../components/ImageCapture';
 import Snackbar from '../components/Snackbar';
 import QRScannerModal from '../components/QRScannerModal';
+import PlotJumpPanel from '../components/PlotJumpPanel';
 import { classifyTrait, preloadModels, modelManager } from '../services/classifierService';
 import { useWeather } from '../hooks/useWeather';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
@@ -69,6 +70,9 @@ export default function ObservationEntry() {
   // QR scanner
   const [showScanner, setShowScanner] = useState(false);
 
+  // Plot jump panel
+  const [showJumpPanel, setShowJumpPanel] = useState(false);
+
   // Swipe gesture
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
@@ -80,6 +84,8 @@ export default function ObservationEntry() {
     setLastDiseaseId(null);
     setHeightPrediction(null);
     setHeightAiError(false);
+    pendingBlobsRef.current = new Map();
+    setPhotoKeys([]);
     try {
       const trial = await offlineApi.getTrial(tId);
       const wm = trial.walk_mode || 'row_by_row';
@@ -156,8 +162,9 @@ export default function ObservationEntry() {
     setTraitValues(prev => ({ ...prev, [traitId]: value }));
   }
 
-  // Track blob and uploaded image for two-phase classification
-  const pendingBlobRef = useRef<Blob | null>(null);
+  // Track blobs for multiple photos — keyed by timestamp
+  const pendingBlobsRef = useRef<Map<string, Blob>>(new Map());
+  const [photoKeys, setPhotoKeys] = useState<string[]>([]);
   const localResultRef = useRef<Awaited<ReturnType<typeof classifyTrait>> | null>(null);
   // The trait being classified (set when photo is captured)
   const classifyingTraitRef = useRef<{ traitId: number; traitName: string } | null>(null);
@@ -203,7 +210,9 @@ export default function ObservationEntry() {
 
   // Smart pipeline: Disease ID → find matching trait → run severity model
   async function handleImageCaptured(blob: Blob) {
-    pendingBlobRef.current = blob;
+    const key = Date.now().toString();
+    pendingBlobsRef.current.set(key, blob);
+    setPhotoKeys(prev => [...prev, key]);
     localResultRef.current = null;
     setAiLoading(true);
     setLastDiseaseId(null);
@@ -313,14 +322,14 @@ export default function ObservationEntry() {
   // Phase 2: Upload complete — classification already done in Phase 1, just clean up
   async function handleImageUploaded(_image: PlotImage) {
     setAiLoading(false);
-    pendingBlobRef.current = null;
     localResultRef.current = null;
     classifyingTraitRef.current = null;
   }
 
-  // Re-analyze same photo for a different trait
-  async function reanalyzeForTrait(traitName: string) {
-    const blob = pendingBlobRef.current;
+  // Re-analyze a photo for a different trait
+  async function reanalyzeForTrait(traitName: string, blobKey?: string) {
+    const blobs = pendingBlobsRef.current;
+    const blob = blobKey ? blobs.get(blobKey) : (blobs.size > 0 ? Array.from(blobs.values()).pop()! : null);
     if (!blob) return;
 
     const tt = trialTraits.find(t => t.trait.name === traitName);
@@ -562,7 +571,7 @@ export default function ObservationEntry() {
   return (
     <>
       <div
-        className="pb-28"
+        className="pb-36"
         onTouchStart={onTouchStart}
         onTouchEnd={onTouchEnd}
       >
@@ -671,6 +680,39 @@ export default function ObservationEntry() {
             </div>
             <ImageCapture plotId={pId} imageType="panicle" buttonLabel="Take Photo" onImageCaptured={handleImageCaptured} onImageUploaded={handleImageUploaded} />
 
+            {/* Photo thumbnails */}
+            {photoKeys.length > 0 && (
+              <div className="flex gap-2 mt-2 overflow-x-auto pb-1">
+                {photoKeys.map((key) => {
+                  const blob = pendingBlobsRef.current.get(key);
+                  if (!blob) return null;
+                  return (
+                    <div key={key} className="relative flex-shrink-0">
+                      <img
+                        src={URL.createObjectURL(blob)}
+                        alt="Captured"
+                        className="w-14 h-14 rounded-lg object-cover border border-gray-200"
+                      />
+                      <button
+                        onClick={() => {
+                          const unscoredTraits = trialTraits.filter(
+                            tt => tt.trait.data_type === 'categorical' && aiTraitNames.has(tt.trait.name) && !aiResults[tt.trait_id]
+                          );
+                          if (unscoredTraits.length > 0) {
+                            reanalyzeForTrait(unscoredTraits[0].trait.name, key);
+                          }
+                        }}
+                        className="absolute -top-1 -right-1 w-5 h-5 bg-blue-500 text-white rounded-full text-[10px] flex items-center justify-center"
+                        title="Re-analyze"
+                      >
+                        AI
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
             {/* AI warning/error — shown below image */}
             {aiWarning && !aiLoading && (
               <div className="mt-3 px-3 py-2 bg-yellow-50 rounded-lg border border-yellow-200">
@@ -746,7 +788,7 @@ export default function ObservationEntry() {
                 })}
 
                 {/* Re-analyze dropdown */}
-                {pendingBlobRef.current && (() => {
+                {pendingBlobsRef.current.size > 0 && (() => {
                   const unscoredAiTraits = trialTraits.filter(
                     tt => tt.trait.data_type === 'categorical' && aiTraitNames.has(tt.trait.name) && !aiResults[tt.trait_id]
                   );
@@ -838,6 +880,18 @@ export default function ObservationEntry() {
 
       {/* Sticky bottom bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] px-4 py-3">
+        {/* Mini-nav row */}
+        <div className="max-w-2xl mx-auto flex justify-center gap-6 mb-2">
+          <button onClick={() => navigate('/')} className="text-gray-400 hover:text-green-700 transition-colors p-1" title="Home">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" /></svg>
+          </button>
+          <button onClick={() => navigate(`/trials/${tId}`)} className="text-gray-400 hover:text-green-700 transition-colors p-1" title="Dashboard">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" /><path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" /></svg>
+          </button>
+          <button onClick={() => navigate(`/trials/${tId}/plots`)} className="text-gray-400 hover:text-green-700 transition-colors p-1" title="Plot List">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" /></svg>
+          </button>
+        </div>
         <div className="max-w-2xl mx-auto flex items-center gap-3">
           <button
             onClick={() => goToPlot(currentIndex - 1)}
@@ -862,7 +916,7 @@ export default function ObservationEntry() {
           </button>
         </div>
         <div className="flex items-center justify-center gap-2 text-xs text-gray-400 mt-1">
-          <span>{currentIndex + 1} / {allPlots.length}</span>
+          <button onClick={() => setShowJumpPanel(true)} className="text-blue-500 hover:text-blue-700 font-medium">{currentIndex + 1} / {allPlots.length}</button>
           {selectedRoundId && rounds.length > 0 && (
             <span className="text-green-600">· {rounds.find(r => r.id === selectedRoundId)?.name}</span>
           )}
@@ -883,6 +937,16 @@ export default function ObservationEntry() {
         onClose={() => setShowScanner(false)}
         onScan={handleScanResult}
       />
+
+      {/* Plot jump panel */}
+      {showJumpPanel && (
+        <PlotJumpPanel
+          plots={allPlots}
+          currentIndex={currentIndex}
+          onSelect={goToPlot}
+          onClose={() => setShowJumpPanel(false)}
+        />
+      )}
 
       {/* Walk mode picker popover */}
       {showWalkPicker && (

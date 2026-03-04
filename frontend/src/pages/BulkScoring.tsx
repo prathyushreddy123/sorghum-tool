@@ -173,9 +173,9 @@ export default function BulkScoring() {
   if (loading) return <p className="text-neutral text-center py-8">Loading...</p>;
 
   return (
-    <div>
+    <div className="-mx-4 sm:-mx-6 -my-4 flex flex-col h-[calc(100vh-56px)]">
       {/* Sticky top bar: save + nav + round selector */}
-      <div className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm -mx-4 sm:-mx-6 px-4 sm:px-6 py-2">
+      <div className="flex-shrink-0 bg-white border-b border-gray-200 shadow-sm px-4 sm:px-6 py-2 z-30">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button onClick={() => navigate(`/trials/${tId}/plots`)} className="text-sm text-gray-500 hover:text-gray-700">
@@ -217,16 +217,16 @@ export default function BulkScoring() {
         </div>
       </div>
 
-      {/* Grid table */}
-      <div className="overflow-x-auto border border-gray-200 rounded-lg mt-3">
-        <table className="w-full text-xs">
+      {/* Grid table — scrolls both directions independently */}
+      <div className="flex-1 overflow-auto">
+        <table className="text-xs border-collapse">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-50">
-              <th className="sticky left-0 z-20 bg-gray-50 px-2 py-2 text-left font-semibold text-gray-600 min-w-[100px] border-r border-gray-200">
+              <th className="sticky left-0 z-20 bg-gray-50 px-2 py-2 text-left font-semibold text-gray-600 min-w-[100px] border-r border-b border-gray-200">
                 Plot
               </th>
               {traits.map(tt => (
-                <th key={tt.trait_id} className="px-2 py-2 text-center font-semibold text-gray-600 min-w-[80px]">
+                <th key={tt.trait_id} className="px-2 py-2 text-center font-semibold text-gray-600 min-w-[90px] border-b border-gray-200 whitespace-nowrap">
                   {tt.trait.label}
                   {tt.trait.unit && <span className="text-gray-400 font-normal ml-0.5">({tt.trait.unit})</span>}
                 </th>
@@ -235,7 +235,7 @@ export default function BulkScoring() {
           </thead>
           <tbody>
             {plots.map(plot => (
-              <tr key={plot.id} className="border-t border-gray-100 hover:bg-gray-50">
+              <tr key={plot.id} className="border-b border-gray-100 hover:bg-gray-50">
                 <td className="sticky left-0 z-10 bg-white px-2 py-1.5 font-medium text-neutral border-r border-gray-200">
                   <div className="truncate max-w-[100px]">{plot.plot_id}</div>
                   <div className="text-[10px] text-gray-400 truncate">{plot.genotype}</div>

@@ -49,6 +49,7 @@ export default function ObservationEntry() {
     diseaseConf?: number;
   }>>({});
   const [lastDiseaseId, setLastDiseaseId] = useState<{ disease: string; confidence: number } | null>(null);
+  const [aiWarning, setAiWarning] = useState('');
 
   // AI height prediction
   const [heightPrediction, setHeightPrediction] = useState<HeightPrediction | null>(null);
@@ -230,7 +231,7 @@ export default function ObservationEntry() {
     localResultRef.current = null;
     setAiLoading(true);
     setLastDiseaseId(null);
-    setError('');
+    setAiWarning('');
     console.log('[AI] Photo captured, starting smart pipeline...');
     console.log('[AI] Trial traits:', trialTraits.map(tt => `${tt.trait.name} (${tt.trait.data_type})`).join(', '));
     console.log('[AI] AI-supported traits:', Array.from(aiTraitNames).join(', ') || '(none)');
@@ -273,7 +274,7 @@ export default function ObservationEntry() {
       if (diseaseLabel && matchedTraitName && !target) {
         const readableTrait = matchedTraitName.replace(/_/g, ' ');
         console.warn(`[AI] Disease "${diseaseLabel}" detected but trial has no "${matchedTraitName}" trait`);
-        setError(`${diseaseLabel} detected, but this trial has no "${readableTrait}" trait. Add it to score severity.`);
+        setAiWarning(`${diseaseLabel} detected, but this trial has no "${readableTrait}" trait. Add it to score severity.`);
         setAiLoading(false);
         return;
       }
@@ -301,7 +302,7 @@ export default function ObservationEntry() {
 
       if (!target) {
         console.error('[AI] No AI-supported categorical trait found in trial');
-        setError('No AI-supported trait found. Add a disease severity trait to this trial.');
+        setAiWarning('No AI-supported trait found. Add a disease severity trait to this trial.');
         setAiLoading(false);
         return;
       }
@@ -332,7 +333,7 @@ export default function ObservationEntry() {
       console.log(`[AI] Result: ${target.traitName} = ${result.value} (${(result.confidence * 100).toFixed(0)}%)`);
     } catch (err) {
       console.error('[AI] Smart pipeline failed:', err);
-      setError(`AI analysis failed: ${err instanceof Error ? err.message : String(err)}`);
+      setAiWarning(`AI analysis failed: ${err instanceof Error ? err.message : String(err)}`);
       setAiLoading(false);
     }
   }
@@ -372,7 +373,7 @@ export default function ObservationEntry() {
       console.error('[AI] Phase 2 failed:', err);
       // Keep local result if available
       if (!localResult) {
-        setError(`AI prediction failed: ${err instanceof Error ? err.message : String(err)}`);
+        setAiWarning(`AI classification failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     } finally {
       setAiLoading(false);
@@ -733,6 +734,23 @@ export default function ObservationEntry() {
               )}
             </div>
             <ImageCapture plotId={pId} imageType="panicle" buttonLabel="Take Photo" onImageCaptured={handleImageCaptured} onImageUploaded={handleImageUploaded} />
+
+            {/* AI warning/error — shown below image */}
+            {aiWarning && !aiLoading && (
+              <div className="mt-3 px-3 py-2 bg-yellow-50 rounded-lg border border-yellow-200">
+                {lastDiseaseId && (
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm text-purple-700 font-medium">
+                      Disease: <strong>{lastDiseaseId.disease}</strong>
+                    </span>
+                    <span className="text-xs text-purple-400">
+                      {(lastDiseaseId.confidence * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                )}
+                <p className="text-sm text-yellow-700">{aiWarning}</p>
+              </div>
+            )}
 
             {/* AI loading spinner */}
             {aiLoading && (

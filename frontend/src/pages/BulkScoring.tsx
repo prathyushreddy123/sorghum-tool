@@ -173,22 +173,37 @@ export default function BulkScoring() {
   if (loading) return <p className="text-neutral text-center py-8">Loading...</p>;
 
   return (
-    <div className="pb-20">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-bold text-neutral">Grid Scoring</h2>
-        <button onClick={() => navigate(`/trials/${tId}/plots`)} className="text-sm text-gray-500 hover:text-gray-700">
-          Back to List
-        </button>
-      </div>
+    <div>
+      {/* Sticky top bar: save + nav + round selector */}
+      <div className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm -mx-4 sm:-mx-6 px-4 sm:px-6 py-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button onClick={() => navigate(`/trials/${tId}/plots`)} className="text-sm text-gray-500 hover:text-gray-700">
+              ← List
+            </button>
+            <h2 className="text-sm font-bold text-neutral">Grid Scoring</h2>
+          </div>
+          <div className="flex items-center gap-2">
+            {dirtyCount > 0 && (
+              <span className="text-xs text-yellow-600 font-medium">{dirtyCount} unsaved</span>
+            )}
+            <button
+              onClick={handleSaveAll}
+              disabled={saving || dirtyCount === 0}
+              className="px-4 py-2 bg-green-700 text-white rounded-lg font-semibold text-sm min-h-[40px] disabled:opacity-30 transition-opacity"
+            >
+              {saving ? 'Saving...' : `Save All${dirtyCount > 0 ? ` (${dirtyCount})` : ''}`}
+            </button>
+          </div>
+        </div>
 
-      {/* Round selector */}
-      {rounds.length > 1 && (
-        <div className="flex gap-2 mb-3 flex-wrap">
-          {rounds.map(r => (
+        {/* Round selector + messages */}
+        <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+          {rounds.length > 1 && rounds.map(r => (
             <button
               key={r.id}
               onClick={() => handleRoundChange(r.id)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${
+              className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-all ${
                 selectedRoundId === r.id
                   ? 'bg-green-700 text-white border-green-700'
                   : 'bg-white text-gray-600 border-gray-300 hover:border-green-400'
@@ -197,14 +212,13 @@ export default function BulkScoring() {
               {r.name}
             </button>
           ))}
+          {savedMsg && <span className="text-xs text-green-600 font-medium ml-auto">{savedMsg}</span>}
+          {error && <span className="text-xs text-error font-medium ml-auto">{error}</span>}
         </div>
-      )}
-
-      {error && <p className="text-sm text-error mb-2">{error}</p>}
-      {savedMsg && <p className="text-sm text-green-600 mb-2">{savedMsg}</p>}
+      </div>
 
       {/* Grid table */}
-      <div className="overflow-x-auto border border-gray-200 rounded-lg">
+      <div className="overflow-x-auto border border-gray-200 rounded-lg mt-3">
         <table className="w-full text-xs">
           <thead className="sticky top-0 z-10">
             <tr className="bg-gray-50">
@@ -235,22 +249,6 @@ export default function BulkScoring() {
             ))}
           </tbody>
         </table>
-      </div>
-
-      {/* Sticky save footer */}
-      <div className="fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.08)] px-4 py-3">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <span className="text-sm text-gray-500">
-            {dirtyCount > 0 ? `${dirtyCount} unsaved change${dirtyCount !== 1 ? 's' : ''}` : 'No changes'}
-          </span>
-          <button
-            onClick={handleSaveAll}
-            disabled={saving || dirtyCount === 0}
-            className="px-6 py-2.5 bg-green-700 text-white rounded-lg font-semibold text-sm min-h-[44px] disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : `Save All (${dirtyCount})`}
-          </button>
-        </div>
       </div>
     </div>
   );

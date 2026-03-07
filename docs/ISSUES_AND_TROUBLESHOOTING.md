@@ -455,6 +455,67 @@ const session = await ort.InferenceSession.create(buffer, {
 
 ---
 
+## Phase 7: Email Verification & Offline Images (Mar 2026)
+
+### ISS-033: Migration uses SQLite boolean syntax — fails on PostgreSQL
+
+**Symptom:** Backend fails to start on Railway after deploying email verification feature. Frontend shows "Failed to fetch" on all API calls.
+
+**Root cause:** Alembic migration `j0e1f2g3h4i5` used SQLite-style boolean values:
+- `server_default=sa.text("0")` — PostgreSQL rejects integer `0` for BOOLEAN columns
+- `UPDATE users SET email_verified = 1` — PostgreSQL requires `true`/`false`
+
+This happened because the migration was written in a local dev environment that uses SQLite, then deployed to Railway which runs PostgreSQL.
+
+**Fix:** Changed to PostgreSQL-compatible boolean literals:
+- `server_default=sa.text("false")`
+- `UPDATE users SET email_verified = true`
+
+**Lesson:** Always use `true`/`false` (not `0`/`1`) in Alembic migrations to maintain SQLite + PostgreSQL compatibility. PostgreSQL accepts `true`/`false`, and SQLite also accepts them.
+
+**Commit:** `6ab1d61`
+
+---
+
+### ISS-034: Registration hangs indefinitely — "Loading please wait" forever
+
+**Symptom:** Clicking Register shows loading spinner that never completes. Request times out after several minutes.
+
+**Root cause:** The `POST /auth/register` endpoint sends a verification email synchronously before returning. `smtplib.SMTP(host, port)` has **no default timeout** — if the SMTP server is configured but unreachable (e.g., `SMTP_HOST` is set on Railway but the mail server doesn't respond), the connection attempt blocks forever, hanging the entire request.
+
+**Fix:**
+1. Added `timeout=10` to `smtplib.SMTP()` call — caps email sending at 10 seconds
+2. Wrapped verification email in `try/except` — registration completes even if email fails
+3. Same fix applied to resend-verification endpoint
+
+**Note on SMTP:** If `SMTP_HOST` is not set (empty string), the email service skips SMTP entirely and just logs to console. The hang only occurs when `SMTP_HOST` is set but the server is unreachable. For now, email verification works as a soft gate — users get a 24h grace period regardless of whether the email is delivered.
+
+**Commit:** `111161b`
+
+---
+
+### ISS-035: Email verification not required for current deployment
+
+**Symptom:** Not a bug — documentation of a design decision.
+
+**Context:** Email verification is implemented as a **soft gate**: users can use the app for 24 hours without verifying. After 24h, if they have pending sync data, the grace auto-extends by another 24h. Existing users were grandfathered as `email_verified=true` in the migration.
+
+**SMTP setup (optional):** To enable actual verification emails, configure these env vars on Railway:
+```
+SMTP_HOST=smtp.resend.com    (or smtp.gmail.com, smtp.sendgrid.net)
+SMTP_PORT=587
+SMTP_USER=<username>
+SMTP_PASSWORD=<password>
+SMTP_FROM_EMAIL=noreply@yourdomain.com
+```
+
+Without SMTP configured, the system works fine — just no emails are sent. Verification can be done manually via Supabase SQL editor:
+```sql
+UPDATE users SET email_verified = true WHERE email = 'user@example.com';
+```
+
+---
+
 ## Debugging Cheatsheet
 
 ### Backend
@@ -511,6 +572,12 @@ RUNPOD_API_KEY        — RunPod authentication
 TRAINING_CALLBACK_SECRET — Secret for training job callbacks
 RAILWAY_PUBLIC_URL    — Public URL for callbacks
 SECRET_KEY            — JWT signing key (keep stable across deploys!)
+SMTP_HOST             — SMTP server (empty = dev mode, no emails sent)
+SMTP_PORT             — SMTP port (default 587)
+SMTP_USER             — SMTP username
+SMTP_PASSWORD         — SMTP password
+SMTP_FROM_EMAIL       — Sender email address
+FRONTEND_URL          — Frontend URL for email links (e.g., https://your-app.vercel.app)
 ```
 
 **Frontend (Vercel):**

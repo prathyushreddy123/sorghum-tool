@@ -40,10 +40,14 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(user)
 
-    # Send verification email
-    raw_token = crud.create_email_verification_token(db, user.id)
-    verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
-    send_verification_email(user.email, verify_url)
+    # Send verification email (non-blocking — don't fail registration if email fails)
+    try:
+        raw_token = crud.create_email_verification_token(db, user.id)
+        verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
+        send_verification_email(user.email, verify_url)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Verification email failed for %s: %s", user.email, e)
 
     token = create_access_token(user.id)
     return TokenResponse(
@@ -78,9 +82,13 @@ def resend_verification(
         if (datetime.now(timezone.utc) - last_utc).total_seconds() < 120:
             raise HTTPException(status_code=429, detail="Please wait 2 minutes before requesting another verification email")
 
-    raw_token = crud.create_email_verification_token(db, user.id)
-    verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
-    send_verification_email(user.email, verify_url)
+    try:
+        raw_token = crud.create_email_verification_token(db, user.id)
+        verify_url = f"{settings.FRONTEND_URL}/verify-email?token={raw_token}"
+        send_verification_email(user.email, verify_url)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Resend verification email failed for %s: %s", user.email, e)
     return {"message": "Verification email sent"}
 
 

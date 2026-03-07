@@ -5,7 +5,7 @@ import crud
 from auth import get_current_user, require_user, get_authorized_trial
 from database import get_db
 from models import Trial, User
-from schemas import WALK_MODES, TrialCloneRequest, TrialCreate, TrialResponse, TrialUpdate
+from schemas import WALK_MODES, TrialCloneRequest, TrialCreate, TrialResponse, TrialShareRequest, TrialUpdate
 
 router = APIRouter(prefix="/trials", tags=["trials"])
 
@@ -40,6 +40,26 @@ def list_trials(
         resp.team_id = t.team_id
         if t.team:
             resp.team_name = t.team.name
+        results.append(resp)
+    return results
+
+
+@router.get("/personal", response_model=list[TrialResponse])
+def list_personal_trials(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_user),
+):
+    """Return trials owned by the current user that are NOT shared with any team."""
+    trials = (
+        db.query(Trial)
+        .filter(Trial.user_id == current_user.id, Trial.team_id.is_(None))
+        .all()
+    )
+    counts = crud.get_trial_plot_counts_bulk(db, [t.id for t in trials])
+    results = []
+    for t in trials:
+        resp = TrialResponse.model_validate(t)
+        resp.plot_count, resp.scored_count = counts.get(t.id, (0, 0))
         results.append(resp)
     return results
 
@@ -124,3 +144,26 @@ def clone_trial(
     db.commit()
     db.refresh(cloned)
     return _enrich_trial_response(db, cloned)
+
+
+@router.patch("/{trial_id}/share", response_model=TrialResponse)
+def share_trial(
+    trial_id: int,
+    data: TrialShareRequest,
+    db: Session = Depends(get_db),
+    trial: Trial = Depends(get_authorized_trial),
+    current_user: User = Depends(require_user),
+):
+    """Share or unshare a trial with a team. Only the trial owner can do this."""
+    if trial.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Only the trial owner can share/unshare")
+
+    if data.team_id is not None:
+        # Verify user is a member of the target team
+        if not crud.is_team_member(db, data.team_id, current_user.id):
+            raise HTTPException(status_code=403, detail="You must be a member of the target team")
+
+    trial.team_id = data.team_id
+    db.commit()
+    db.refresh(trial)
+    return _enrich_trial_response(db, trial)

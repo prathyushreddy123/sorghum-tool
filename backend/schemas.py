@@ -21,6 +21,7 @@ class UserResponse(BaseModel):
     email: str
     name: str
     role: str
+    email_verified: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -39,6 +40,14 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     password: str = Field(..., min_length=6)
+
+
+class ResendVerificationRequest(BaseModel):
+    pass  # Uses auth token, no body needed
+
+
+class TrialShareRequest(BaseModel):
+    team_id: int | None = None
 
 
 # --- Team ---
@@ -335,6 +344,7 @@ class ImageResponse(BaseModel):
     filename: str
     original_name: str
     image_type: str
+    storage_path: str | None = None
     uploaded_at: datetime
 
     model_config = {"from_attributes": True}

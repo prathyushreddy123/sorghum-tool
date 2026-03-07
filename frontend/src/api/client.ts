@@ -62,6 +62,13 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
     localStorage.removeItem('auth_token');
     window.dispatchEvent(new Event('auth:logout'));
   }
+  if (res.status === 403) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    if (body.detail === 'Email verification required') {
+      window.dispatchEvent(new Event('auth:verification-required'));
+    }
+    throw new Error(body.detail || `Access denied: ${res.status}`);
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail || `Request failed: ${res.status}`);
@@ -99,6 +106,16 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token, password }),
+    }),
+
+  verifyEmail: (token: string) =>
+    request<{ message: string; user: User }>(`/auth/verify-email?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+    }),
+
+  resendVerification: () =>
+    request<{ message: string }>('/auth/resend-verification', {
+      method: 'POST',
     }),
 
   // ─── Teams ────────────────────────────────────────────────────────────────
@@ -146,6 +163,15 @@ export const api = {
     }),
 
   getTrial: (id: number) => request<Trial>(`/trials/${id}`),
+
+  getPersonalTrials: () => request<Trial[]>('/trials/personal'),
+
+  shareTrial: (trialId: number, teamId: number | null) =>
+    request<Trial>(`/trials/${trialId}/share`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team_id: teamId }),
+    }),
 
   updateTrial: (id: number, data: { walk_mode?: string }) =>
     request<Trial>(`/trials/${id}`, {
@@ -484,6 +510,27 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     }),
+
+  downloadTrialImages: async (trialId: number, roundId?: number): Promise<void> => {
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const query = roundId ? `?round_id=${roundId}` : '';
+    const res = await fetch(`${API_BASE}/trials/${trialId}/download-images${query}`, { headers });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(body.detail || 'Download failed');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = res.headers.get('content-disposition')?.match(/filename="(.+)"/)?.[1] || 'images.zip';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
 
   exportCsv: async (trialId: number, roundId?: number): Promise<Blob> => {
     const headers: Record<string, string> = {};

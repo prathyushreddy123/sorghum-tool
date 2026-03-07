@@ -19,6 +19,7 @@ const Settings = lazy(() => import('./pages/Settings'));
 const TrainingDashboard = lazy(() => import('./pages/TrainingDashboard'));
 const BulkScoring = lazy(() => import('./pages/BulkScoring'));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'));
+const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'));
 
 function PageLoader() {
   return (
@@ -93,6 +94,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<AuthenticatedLogin />} />
           <Route path="/reset-password" element={<Suspense fallback={<PageLoader />}><ResetPasswordPage /></Suspense>} />
+          <Route path="/verify-email" element={<Suspense fallback={<PageLoader />}><VerifyEmailPage /></Suspense>} />
           <Route path="*" element={<ProtectedRoutes />} />
         </Routes>
       </AuthProvider>

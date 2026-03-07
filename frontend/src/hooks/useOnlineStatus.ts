@@ -1,5 +1,6 @@
 import { useSyncExternalStore, useCallback, useEffect, useState } from 'react';
-import { getPendingCount, syncPending } from '../db/offlineApi';
+import { getPendingCount, getPendingImageCount, getPendingImageBytes, syncPending } from '../db/offlineApi';
+import { getStorageQuota } from '../services/imageCompressor';
 
 function subscribe(cb: () => void) {
   window.addEventListener('online', cb);
@@ -18,9 +19,21 @@ export function useOnlineStatus() {
   const online = useSyncExternalStore(subscribe, getSnapshot, () => true);
   const [pendingCount, setPendingCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
+  const [storagePercent, setStoragePercent] = useState(0);
+  const [pendingImageCount, setPendingImageCount] = useState(0);
+  const [pendingImageBytes, setPendingImageBytes] = useState(0);
 
   const refreshPending = useCallback(async () => {
-    setPendingCount(await getPendingCount());
+    const [count, imgCount, imgBytes, quota] = await Promise.all([
+      getPendingCount(),
+      getPendingImageCount(),
+      getPendingImageBytes(),
+      getStorageQuota(),
+    ]);
+    setPendingCount(count);
+    setPendingImageCount(imgCount);
+    setPendingImageBytes(imgBytes);
+    setStoragePercent(quota.percent);
   }, []);
 
   useEffect(() => {
@@ -57,5 +70,5 @@ export function useOnlineStatus() {
     }
   }, [online, syncing, refreshPending]);
 
-  return { online, pendingCount, syncing, manualSync, refreshPending };
+  return { online, pendingCount, syncing, manualSync, refreshPending, storagePercent, pendingImageCount, pendingImageBytes };
 }

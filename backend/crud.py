@@ -1071,6 +1071,69 @@ def use_reset_token(db: Session, prt: PasswordResetToken, new_hashed_password: s
     return user  # type: ignore
 
 
+# ─── Email Verification ────────────────────────────────────────────────────────
+
+def create_email_verification_token(db: Session, user_id: int) -> str:
+    """Create an email verification token. Returns the raw token."""
+    from datetime import timedelta
+    from models import EmailVerificationToken
+
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    expires_at = datetime.utcnow() + timedelta(hours=24)
+    evt = EmailVerificationToken(
+        user_id=user_id,
+        token_hash=token_hash,
+        expires_at=expires_at,
+    )
+    db.add(evt)
+    db.commit()
+    return raw_token
+
+
+def verify_email_token(db: Session, raw_token: str):
+    """Verify an email verification token. Returns the token record or None."""
+    from models import EmailVerificationToken
+
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    evt = (
+        db.query(EmailVerificationToken)
+        .filter(
+            EmailVerificationToken.token_hash == token_hash,
+            EmailVerificationToken.used == False,  # noqa: E712
+            EmailVerificationToken.expires_at > datetime.utcnow(),
+        )
+        .first()
+    )
+    return evt
+
+
+def use_email_verification_token(db: Session, evt) -> User:
+    """Consume the verification token and mark user as verified."""
+    evt.used = True
+    user = db.query(User).filter(User.id == evt.user_id).first()
+    if user:
+        user.email_verified = True
+        user.email_verified_at = datetime.utcnow()
+    db.commit()
+    if user:
+        db.refresh(user)
+    return user  # type: ignore
+
+
+def get_last_verification_token_time(db: Session, user_id: int) -> datetime | None:
+    """Get creation time of the most recent verification token for rate limiting."""
+    from models import EmailVerificationToken
+
+    latest = (
+        db.query(EmailVerificationToken)
+        .filter(EmailVerificationToken.user_id == user_id)
+        .order_by(EmailVerificationToken.created_at.desc())
+        .first()
+    )
+    return latest.created_at if latest else None
+
+
 def revoke_api_key(db: Session, key_id: int) -> bool:
     key = db.query(APIKey).filter(APIKey.id == key_id).first()
     if not key:
@@ -1082,8 +1145,8 @@ def revoke_api_key(db: Session, key_id: int) -> bool:
 
 # ─── Images ───────────────────────────────────────────────────────────────────
 
-def create_image(db: Session, plot_id: int, filename: str, original_name: str, image_type: str = "panicle") -> Image:
-    img = Image(plot_id=plot_id, filename=filename, original_name=original_name, image_type=image_type)
+def create_image(db: Session, plot_id: int, filename: str, original_name: str, image_type: str = "panicle", storage_path: str | None = None) -> Image:
+    img = Image(plot_id=plot_id, filename=filename, original_name=original_name, image_type=image_type, storage_path=storage_path)
     db.add(img)
     db.commit()
     db.refresh(img)

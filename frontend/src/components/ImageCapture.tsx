@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
+import { uploadImageOffline } from '../db/offlineApi';
 import type { PlotImage } from '../types';
 
 interface ImageCaptureProps {
@@ -57,7 +58,18 @@ export default function ImageCapture({ plotId, imageType = 'panicle', helpText, 
     try {
       const compressed = await compressImage(file);
       onImageCaptured?.(compressed);
-      const img = await api.uploadImage(plotId, compressed, imageType);
+
+      let img: PlotImage;
+      if (navigator.onLine) {
+        try {
+          img = await api.uploadImage(plotId, compressed, imageType);
+        } catch {
+          // Online upload failed — fall back to offline queue
+          img = await uploadImageOffline(plotId, compressed, imageType);
+        }
+      } else {
+        img = await uploadImageOffline(plotId, compressed, imageType);
+      }
       setImages((prev) => [img, ...prev]);
       onImageUploaded?.(img);
     } catch (err) {
@@ -129,18 +141,26 @@ export default function ImageCapture({ plotId, imageType = 'panicle', helpText, 
         <div className="mt-3 flex flex-wrap gap-2">
           {images.map((img) => (
             <div key={img.id} className="relative">
-              <img
-                src={api.getImageUrl(img.filename)}
-                alt={img.original_name}
-                className="w-20 h-20 object-cover rounded-lg border border-gray-200"
-              />
-              <button
-                type="button"
-                onClick={() => handleDelete(img.id)}
-                className="absolute -top-2 -right-2 w-6 h-6 bg-error text-white rounded-full text-xs flex items-center justify-center"
-              >
-                X
-              </button>
+              {img.id > 0 ? (
+                <img
+                  src={api.getImageUrl(img.filename)}
+                  alt={img.original_name}
+                  className="w-20 h-20 object-cover rounded-lg border border-gray-200"
+                />
+              ) : (
+                <div className="w-20 h-20 rounded-lg border border-dashed border-yellow-400 bg-yellow-50 flex items-center justify-center">
+                  <span className="text-[10px] text-yellow-600 font-medium">Pending</span>
+                </div>
+              )}
+              {img.id > 0 && (
+                <button
+                  type="button"
+                  onClick={() => handleDelete(img.id)}
+                  className="absolute -top-2 -right-2 w-6 h-6 bg-error text-white rounded-full text-xs flex items-center justify-center"
+                >
+                  X
+                </button>
+              )}
             </div>
           ))}
         </div>

@@ -289,7 +289,10 @@ export default function TrialDashboard() {
           </Link>
         )}
         {stats.scored_plots > 0 && (
-          <ExportButton trialId={trial.id} trialName={trial.name} roundId={selectedRoundId} />
+          <>
+            <ExportButton trialId={trial.id} trialName={trial.name} roundId={selectedRoundId} />
+            <DownloadImagesButton trialId={trial.id} roundId={selectedRoundId} />
+          </>
         )}
         {/* Offline download */}
         <button
@@ -496,6 +499,31 @@ function TraitStatCard({ stat }: { stat: TraitStatItem }) {
         <p className="text-xs text-gray-400 mt-1">No data yet</p>
       )}
     </div>
+  );
+}
+
+function DownloadImagesButton({ trialId, roundId }: { trialId: number; roundId?: number }) {
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      await api.downloadTrialImages(trialId, roundId);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Download failed');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={handleDownload}
+      disabled={downloading}
+      className="w-full py-3 bg-card text-neutral text-center rounded-lg font-semibold text-sm min-h-[44px] border border-gray-300 disabled:opacity-50 cursor-pointer hover:bg-gray-50 disabled:cursor-not-allowed transition-colors"
+    >
+      {downloading ? 'Preparing ZIP...' : 'Download Images (ZIP)'}
+    </button>
   );
 }
 

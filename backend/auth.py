@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -9,6 +10,8 @@ from sqlalchemy.orm import Session
 from config import settings
 from database import get_db
 from models import User
+
+logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
@@ -53,14 +56,48 @@ def get_current_user(
     return user
 
 
-def require_user(user: User | None = Depends(get_current_user)) -> User:
-    """Dependency that requires authentication."""
+def require_user(
+    user: User | None = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> User:
+    """Dependency that requires authentication. Enforces email verification after grace period."""
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Check email verification grace period
+    if not user.email_verified and user.verification_grace_expires:
+        now = datetime.now(timezone.utc)
+        grace_naive = user.verification_grace_expires
+        # Compare in UTC — handle naive datetimes from DB
+        grace_utc = grace_naive.replace(tzinfo=timezone.utc) if grace_naive.tzinfo is None else grace_naive
+        if now > grace_utc:
+            # Check for pending sync data (recent observations)
+            from models import Observation, Plot, Trial
+            has_pending = (
+                db.query(Observation)
+                .join(Plot, Observation.plot_id == Plot.id)
+                .join(Trial, Plot.trial_id == Trial.id)
+                .filter(Trial.user_id == user.id)
+                .filter(Observation.recorded_at > (datetime.utcnow() - timedelta(hours=48)))
+                .first()
+            ) is not None
+
+            if has_pending:
+                # Auto-extend grace by 24h to let data sync
+                user.verification_grace_expires = datetime.utcnow() + timedelta(hours=24)
+                db.commit()
+                logger.warning("Auto-extended verification grace for user %s (pending data)", user.id)
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Email verification required",
+                    headers={"X-Verification-Required": "true"},
+                )
+
     return user
 
 

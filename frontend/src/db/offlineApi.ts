@@ -1,9 +1,10 @@
 import { db } from './index';
 import type { PendingSync } from './index';
 import { api } from '../api/client';
+import { compressImage } from '../services/imageCompressor';
 import type {
   Trial, Plot, Trait, TraitCreate, TrialCreate, TrialTrait, ScoringRound,
-  Observation, ObservationBulkCreate,
+  Observation, ObservationBulkCreate, PlotImage,
 } from '../types';
 
 function isOnline(): boolean {
@@ -436,6 +437,60 @@ export async function createTrial(data: TrialCreate): Promise<Trial> {
   return localTrial;
 }
 
+// ─── Offline Image Upload ─────────────────────────────────────────────────────
+
+export async function uploadImageOffline(
+  plotId: number,
+  file: File,
+  imageType: 'panicle' | 'full_plant' = 'panicle',
+): Promise<PlotImage> {
+  const compressed = await compressImage(file);
+  const now = Date.now();
+
+  const pendingImageId = await db.pendingImages.add({
+    plotId,
+    imageType,
+    compressedBlob: compressed,
+    originalName: file.name,
+    capturedAt: now,
+    sizeBytes: compressed.size,
+  });
+
+  await db.pendingSync.add({
+    action: { type: 'uploadImage', plotId, pendingImageId: pendingImageId as number, imageType },
+    createdAt: now,
+    retries: 0,
+  });
+
+  // Check storage quota and dispatch warning if >80%
+  if (navigator.storage?.estimate) {
+    const est = await navigator.storage.estimate();
+    const percent = est.quota ? ((est.usage ?? 0) / est.quota) * 100 : 0;
+    if (percent > 80) {
+      window.dispatchEvent(new CustomEvent('storage:warning', { detail: { percent } }));
+    }
+  }
+
+  // Return a local placeholder with negative ID
+  return {
+    id: -(pendingImageId as number),
+    plot_id: plotId,
+    filename: `pending_${pendingImageId}`,
+    original_name: file.name,
+    image_type: imageType,
+    uploaded_at: new Date().toISOString(),
+  };
+}
+
+export async function getPendingImageCount(): Promise<number> {
+  return db.pendingImages.count();
+}
+
+export async function getPendingImageBytes(): Promise<number> {
+  const items = await db.pendingImages.toArray();
+  return items.reduce((sum, item) => sum + item.sizeBytes, 0);
+}
+
 // ─── Trial deletion (cache cleanup) ──────────────────────────────────────────
 
 export async function deleteTrial(trialId: number): Promise<void> {
@@ -524,6 +579,22 @@ async function replayAction(item: PendingSync): Promise<void> {
       const tempTTs = await db.trialTraits.where('trait_id').equals(action.tempId).toArray();
       for (const tt of tempTTs) {
         await db.trialTraits.update(tt.id, { trait_id: realTrait.id });
+      }
+      break;
+    }
+    case 'uploadImage': {
+      const pendingImg = await db.pendingImages.get(action.pendingImageId);
+      if (pendingImg) {
+        const file = new File([pendingImg.compressedBlob], pendingImg.originalName, { type: 'image/jpeg' });
+        const serverImg = await api.uploadImage(action.plotId, file, pendingImg.imageType);
+        await db.pendingImages.delete(action.pendingImageId);
+        await db.cachedImages.put({
+          id: serverImg.id,
+          plotId: serverImg.plot_id,
+          filename: serverImg.filename,
+          thumbnailBlob: null,
+          _cachedAt: Date.now(),
+        });
       }
       break;
     }
@@ -625,5 +696,7 @@ export async function clearAll(): Promise<void> {
     db.scoringRounds.clear(),
     db.observations.clear(),
     db.pendingSync.clear(),
+    db.pendingImages.clear(),
+    db.cachedImages.clear(),
   ]);
 }

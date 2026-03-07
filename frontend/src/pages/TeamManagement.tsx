@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import { useAuth } from '../contexts/AuthContext';
 import { useTeam } from '../contexts/TeamContext';
 import ConfirmDialog from '../components/ConfirmDialog';
+import TrialSharingManager from '../components/TrialSharingManager';
 
 export default function TeamManagement() {
   const { user } = useAuth();
@@ -384,6 +385,14 @@ export default function TeamManagement() {
                                 )}
                               </div>
                             ))}
+                          </div>
+                        </div>
+
+                        {/* Trial Sharing */}
+                        <div className="mb-4">
+                          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Shared Trials</div>
+                          <div className="bg-white rounded-lg border border-gray-100 p-3">
+                            <TrialSharingManager teamId={team.id} />
                           </div>
                         </div>
 

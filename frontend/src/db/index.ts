@@ -84,13 +84,34 @@ export interface CachedObservation {
   _cachedAt: number;
 }
 
+// ─── Pending images (offline upload queue) ────────────────────────────────────
+
+export interface PendingImage {
+  id?: number;
+  plotId: number;
+  imageType: 'panicle' | 'full_plant';
+  compressedBlob: Blob;
+  originalName: string;
+  capturedAt: number;
+  sizeBytes: number;
+}
+
+export interface CachedImage {
+  id: number;       // matches server Image.id
+  plotId: number;
+  filename: string;
+  thumbnailBlob: Blob | null;
+  _cachedAt: number;
+}
+
 // ─── Sync queue ──────────────────────────────────────────────────────────────
 
 export type SyncAction =
   | { type: 'saveObservations'; plotId: number; data: unknown }
   | { type: 'updatePlotStatus'; trialId: number; plotId: number; status: string }
   | { type: 'createTrait'; data: unknown; tempId: number }
-  | { type: 'createTrial'; data: unknown; tempId: number };
+  | { type: 'createTrial'; data: unknown; tempId: number }
+  | { type: 'uploadImage'; plotId: number; pendingImageId: number; imageType: string };
 
 export interface PendingSync {
   id?: number;
@@ -109,6 +130,8 @@ class FieldScoutDB extends Dexie {
   scoringRounds!: EntityTable<CachedScoringRound, 'id'>;
   observations!: EntityTable<CachedObservation, 'id'>;
   pendingSync!: EntityTable<PendingSync, 'id'>;
+  pendingImages!: EntityTable<PendingImage, 'id'>;
+  cachedImages!: EntityTable<CachedImage, 'id'>;
 
   constructor() {
     super('fieldscout');
@@ -129,6 +152,17 @@ class FieldScoutDB extends Dexie {
       scoringRounds: 'id, trial_id, _cachedAt',
       observations: 'id, plot_id, [plot_id+scoring_round_id], _cachedAt',
       pendingSync: '++id, createdAt',
+    });
+    this.version(3).stores({
+      trials: 'id, team_id, _cachedAt',
+      plots: 'id, trial_id, _cachedAt',
+      traits: 'id, _cachedAt',
+      trialTraits: 'id, trial_id, trait_id, _cachedAt',
+      scoringRounds: 'id, trial_id, _cachedAt',
+      observations: 'id, plot_id, [plot_id+scoring_round_id], _cachedAt',
+      pendingSync: '++id, createdAt',
+      pendingImages: '++id, plotId, capturedAt',
+      cachedImages: 'id, plotId, _cachedAt',
     });
   }
 }

@@ -15,12 +15,12 @@ depends_on = None
 
 def upgrade() -> None:
     # User email verification fields
-    op.add_column("users", sa.Column("email_verified", sa.Boolean(), server_default=sa.text("0"), nullable=False))
+    op.add_column("users", sa.Column("email_verified", sa.Boolean(), server_default=sa.text("false"), nullable=False))
     op.add_column("users", sa.Column("email_verified_at", sa.DateTime(), nullable=True))
     op.add_column("users", sa.Column("verification_grace_expires", sa.DateTime(), nullable=True))
 
     # Grandfather existing users as verified
-    op.execute("UPDATE users SET email_verified = 1")
+    op.execute("UPDATE users SET email_verified = true")
 
     # Email verification tokens table
     op.create_table(
@@ -29,7 +29,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=False, index=True),
         sa.Column("token_hash", sa.String(), nullable=False, unique=True, index=True),
         sa.Column("expires_at", sa.DateTime(), nullable=False),
-        sa.Column("used", sa.Boolean(), server_default=sa.text("0"), nullable=False),
+        sa.Column("used", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.Column("created_at", sa.DateTime(), server_default=sa.func.now()),
     )
 
